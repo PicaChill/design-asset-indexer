@@ -9,10 +9,12 @@ extracting or executing their contents.
 
 ## Reports
 
-Please report a vulnerability through the repository's private security
-reporting channel once a public repository exists. Until then, report it
-directly to the maintainer. Do not attach private design assets to a report;
-use a minimal programmatically generated reproducer.
+Once the project is hosted on GitHub, use the repository's GitHub Security
+Advisories private vulnerability reporting channel for sensitive reports. If
+that channel is not yet available, do not disclose a suspected vulnerability
+publicly; retain a minimal programmatically generated reproducer until the
+maintainer provides a private reporting channel. Do not attach private design
+assets to a report.
 
 ## Scope limits
 

@@ -10,3 +10,5 @@ All notable changes to this project will be documented here.
 - Add embedded JPEG thumbnail export, ZIP directory reports, duplicate
   candidates, contact sheets, and 64-bit dHash helpers.
 - Add generated fixtures, tests, packaging metadata, and provenance notes.
+- Add cross-platform GitHub Actions checks for tests, package builds, and an
+  isolated wheel smoke test.

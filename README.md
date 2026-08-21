@@ -64,7 +64,9 @@ design-asset-index contact-sheet scan-output/previews --out scan-output/contact-
 - PSB: signature and basic header/resource parsing; broader PSB features are
   intentionally out of scope.
 - JPEG, PNG, GIF: signature detection and dimensions through Pillow.
-- ZIP: directory indexing only, with an entry-count safety limit.
+- ZIP: directory indexing only, with entry-count and central-directory safety
+  limits. ZIP64 central-directory metadata and multi-disk archives are rejected
+  by the v0.1 safety profile.
 - Other files: included in inventory as `OTHER`.
 
 RAR is not supported in v0.1.
@@ -81,6 +83,8 @@ telemetry. Output nested inside the input directory is rejected.
   decode layers, or validate every Photoshop feature.
 - Embedded preview extraction supports JPEG thumbnail resources only.
 - dHash is a low-resolution similarity hint, not proof of duplication.
+- ZIP64 central-directory metadata and multi-disk ZIP archives are not supported
+  in v0.1.
 - Very large or malformed resource sections and ZIP entry lists are rejected
   by safety limits.
 

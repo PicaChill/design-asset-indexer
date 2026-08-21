@@ -2,9 +2,9 @@
 
 ## Clean-room origin
 
-This project is a clean-room reimplementation created from an empty directory
-with Codex assistance. Its requirements come from the maintainer's own local,
-offline design-asset workflow and a written behavior specification.
+This project is a clean-room reimplementation created by the user with Codex
+assistance, starting from an empty directory. Its requirements come from a
+written behavior specification for a local, offline design-asset workflow.
 
 Two legacy scripts, `audit_assets.py` and `build_contact_sheets.ps1`, had
 uncertain provenance. They were explicitly excluded: no source, structure, or
@@ -36,8 +36,8 @@ code to copy.
 
 ## Dependencies and licenses
 
-- Pillow (`Pillow>=10.0,<13`) is the only runtime dependency. Its current PyPI
-  metadata declares the `MIT-CMU` SPDX license expression:
+- Pillow (`Pillow>=10.0,<13`) is the only runtime dependency. Its PyPI metadata
+  declares the `MIT-CMU` SPDX license expression:
   https://pypi.org/project/pillow/
 - The Python standard library supplies filesystem, CSV/JSON, ZIP, hashing, and
   command-line support.
