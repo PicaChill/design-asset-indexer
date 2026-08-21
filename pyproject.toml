@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=69,<82", "wheel>=0.43,<1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "design-asset-indexer"
+version = "0.1.0"
+description = "Privacy-first offline indexing for local design-asset archives"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{name = "design-asset-indexer contributors"}]
+keywords = ["assets", "indexing", "psd", "privacy", "offline"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Multimedia :: Graphics",
+]
+dependencies = ["Pillow>=10.0,<13"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "build>=1.2,<2"]
+
+[project.scripts]
+design-asset-index = "design_asset_indexer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]

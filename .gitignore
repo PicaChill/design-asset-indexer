@@ -1,0 +1,13 @@
+.venv/
+dist/
+build/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.coverage
+htmlcov/
+scan-output/
+*.local-output/
+tests/fixtures/synthetic/*
+!tests/fixtures/synthetic/README.md

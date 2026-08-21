@@ -1,0 +1,7 @@
+include CHANGELOG.md
+include PROVENANCE.md
+include SECURITY.md
+include tests/__init__.py
+include tests/conftest.py
+include tests/generate_fixtures.py
+include tests/fixtures/synthetic/README.md
