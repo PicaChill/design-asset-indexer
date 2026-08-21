@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented here.
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-08-22
 
 - Add offline, read-only recursive asset inventory.
 - Add signature-based PSD, PSB, JPEG, PNG, GIF, and ZIP detection.
