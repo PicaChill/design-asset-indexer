@@ -1,11 +1,11 @@
 from pathlib import Path
 
-from design_asset_indexer.archive import index_zip
+from design_asset_indexer import archive
 from design_asset_indexer import duplicates
 
 
 def test_zip_index_lists_without_extraction(fixture_tree: Path) -> None:
-    record = index_zip(fixture_tree / "synthetic.zip", "synthetic.zip")
+    record = archive.index_zip(fixture_tree / "synthetic.zip", "synthetic.zip")
     assert record["error"] is None
     assert record["entry_count"] == 4
     assert record["entries"][0]["name"] == "data/item-001.txt"
@@ -13,13 +13,17 @@ def test_zip_index_lists_without_extraction(fixture_tree: Path) -> None:
 
 
 def test_corrupt_zip_records_error(fixture_tree: Path) -> None:
-    record = index_zip(fixture_tree / "corrupt.zip", "corrupt.zip")
+    record = archive.index_zip(fixture_tree / "corrupt.zip", "corrupt.zip")
     assert record["error"] == "BadZipFile"
     assert record["entries"] == []
 
 
-def test_zip_entry_safety_limit(fixture_tree: Path) -> None:
-    record = index_zip(fixture_tree / "synthetic.zip", "synthetic.zip", max_entries=2)
+def test_zip_entry_safety_limit_precedes_zipfile_open(fixture_tree: Path, monkeypatch) -> None:
+    def forbidden_open(*_args, **_kwargs):
+        raise AssertionError("ZipFile must not open an archive rejected by preflight")
+
+    monkeypatch.setattr(archive.zipfile, "ZipFile", forbidden_open)
+    record = archive.index_zip(fixture_tree / "synthetic.zip", "synthetic.zip", max_entries=2)
     assert record["error"] == "ValueError"
 
 

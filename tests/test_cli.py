@@ -24,3 +24,13 @@ def test_cli_contact_sheet_success(fixture_tree: Path, tmp_path: Path) -> None:
     result = main(["contact-sheet", str(fixture_tree), "--out", str(output), "--columns", "3"])
     assert result == 0
     assert output.is_file()
+
+
+def test_cli_missing_preview_directory_hides_host_path(tmp_path: Path, capsys) -> None:
+    result = main(
+        ["contact-sheet", str(tmp_path / "missing"), "--out", str(tmp_path / "sheet.png")]
+    )
+    captured = capsys.readouterr()
+    assert result == 2
+    assert "preview directory is unavailable" in captured.err
+    assert str(tmp_path) not in captured.err

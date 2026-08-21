@@ -53,8 +53,11 @@ def main(argv: list[str] | None = None) -> int:
         count = create_contact_sheet(args.preview_dir, args.output_file, columns=args.columns)
         print(json.dumps({"images": count}, sort_keys=True))
         return 0
-    except (OSError, ValueError) as error:
+    except ValueError as error:
         print(f"error: {error}", file=sys.stderr)
+        return 2
+    except OSError:
+        print("error: filesystem operation failed", file=sys.stderr)
         return 2
 
 

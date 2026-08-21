@@ -42,6 +42,8 @@ def create_contact_sheet(
 ) -> int:
     if columns < 1:
         raise ValueError("columns must be positive")
+    if not preview_dir.is_dir():
+        raise ValueError("preview directory is unavailable")
     candidates = sorted(
         (
             path
