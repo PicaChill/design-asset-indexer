@@ -9,6 +9,7 @@ import pytest
 
 from design_asset_indexer.photoshop import (
     PhotoshopAdapter,
+    PhotoshopLayerNameRestoreError,
     PhotoshopOpenError,
     PhotoshopReplaceError,
     PhotoshopSaveError,
@@ -500,6 +501,64 @@ def test_replace_exception_removes_created_output(tmp_path: Path) -> None:
     assert original.read_bytes().endswith(b"ORIGINAL")
     row = _read_jsonl(output / "signature_replace_results.jsonl")[0]
     assert row["error_code"] == "PHOTOSHOP_REPLACE_FAILED"
+
+
+def test_layer_name_restore_failure_is_fail_clean_and_batch_continues(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "input"
+    source_paths = {
+        name: _make_psd(source, name, payload)
+        for name, payload in (
+            ("a.psd", b"RESTORE-FAIL-SOURCE"),
+            ("b.psd", b"LATER-SOURCE"),
+            ("c.psd", b"EXISTING-SOURCE"),
+        )
+    }
+    source_hashes = {
+        name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for name, path in source_paths.items()
+    }
+    output = tmp_path / "output"
+    existing = _make_psd(output, "c.psd", b"EXISTING-OUTPUT-UNCHANGED")
+    existing_before = existing.read_bytes()
+    adapter = FakeAdapter(
+        {
+            name: [_layer("Signature", "OLD")]
+            for name in source_paths
+        },
+        replace_results={
+            "a.psd": PhotoshopLayerNameRestoreError(
+                "Photoshop text layer name could not be restored"
+            )
+        },
+    )
+
+    summary = replace_signatures(
+        source,
+        output,
+        adapter,
+        old_text="OLD",
+        new_text="NEW",
+    )
+
+    assert summary["status_counts"] == {
+        "FAILED_REPLACE": 1,
+        "REPLACED": 1,
+        "SKIPPED_EXISTS": 1,
+    }
+    rows = _read_jsonl(output / "signature_replace_results.jsonl")
+    assert rows[0]["status"] == "FAILED_REPLACE"
+    assert rows[0]["error_code"] == "PHOTOSHOP_LAYER_NAME_RESTORE_FAILED"
+    assert rows[1]["status"] == "REPLACED"
+    assert rows[2]["status"] == "SKIPPED_EXISTS"
+    assert not (output / "a.psd").exists()
+    assert (output / "b.psd").is_file()
+    assert existing.read_bytes() == existing_before
+    assert {
+        name: hashlib.sha256(path.read_bytes()).hexdigest()
+        for name, path in source_paths.items()
+    } == source_hashes
 
 
 def test_cleanup_failure_keeps_original_error_and_adds_safe_marker(tmp_path: Path) -> None:

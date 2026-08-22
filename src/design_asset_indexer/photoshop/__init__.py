@@ -4,6 +4,7 @@ from .adapter import PhotoshopAdapter
 from .errors import (
     PhotoshopAutomationError,
     PhotoshopInspectError,
+    PhotoshopLayerNameRestoreError,
     PhotoshopOpenError,
     PhotoshopReplaceError,
     PhotoshopSaveError,
@@ -15,6 +16,7 @@ __all__ = [
     "PhotoshopAdapter",
     "PhotoshopAutomationError",
     "PhotoshopInspectError",
+    "PhotoshopLayerNameRestoreError",
     "PhotoshopOpenError",
     "PhotoshopReplaceError",
     "PhotoshopSaveError",

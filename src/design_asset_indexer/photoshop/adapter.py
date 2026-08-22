@@ -13,6 +13,7 @@ from typing import Iterator
 from .errors import (
     PhotoshopAutomationError,
     PhotoshopInspectError,
+    PhotoshopLayerNameRestoreError,
     PhotoshopOpenError,
     PhotoshopReplaceError,
     PhotoshopSaveError,
@@ -175,12 +176,30 @@ class PhotoshopAdapter:
             ]
             if len(matches) != 1:
                 return ReplaceResult(len(matches), 0)
+            _info, layer = matches[0]
             try:
-                self._set_property(matches[0][1].TextItem, "Contents", new_text)
+                original_layer_name = str(layer.Name)
+            except Exception as error:
+                raise PhotoshopLayerNameRestoreError(
+                    "Photoshop text layer name could not be preserved"
+                ) from error
+            try:
+                self._set_property(layer.TextItem, "Contents", new_text)
             except Exception as error:
                 raise PhotoshopReplaceError(
                     "Photoshop text replacement failed"
                 ) from error
+            try:
+                self._set_property(layer, "Name", original_layer_name)
+                restored_layer_name = str(layer.Name)
+            except Exception as error:
+                raise PhotoshopLayerNameRestoreError(
+                    "Photoshop text layer name could not be restored"
+                ) from error
+            if restored_layer_name != original_layer_name:
+                raise PhotoshopLayerNameRestoreError(
+                    "Photoshop text layer name restoration could not be verified"
+                )
             try:
                 self._invoke_method(document, "Save")
             except Exception as error:
@@ -189,7 +208,12 @@ class PhotoshopAdapter:
         finally:
             self._close_document(document)
 
-    def create_synthetic_psd(self, path: Path, layer_name: str, text: str) -> None:
+    def create_synthetic_psd(
+        self,
+        path: Path,
+        layer_name: str | None,
+        text: str,
+    ) -> None:
         """Create a generated-only fixture for the opt-in local canary."""
 
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -208,8 +232,9 @@ class PhotoshopAdapter:
             )
             layer = self._dispatch(self._invoke_method(document.ArtLayers, "Add"))
             self._set_property(layer, "Kind", TEXT_LAYER_KIND)
-            self._set_property(layer, "Name", layer_name)
             self._set_property(layer.TextItem, "Contents", text)
+            if layer_name is not None:
+                self._set_property(layer, "Name", layer_name)
             self._invoke_method(document, "SaveAs", str(path.resolve()))
         except Exception as error:
             raise PhotoshopAutomationError(

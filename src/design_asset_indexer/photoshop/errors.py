@@ -25,5 +25,9 @@ class PhotoshopReplaceError(PhotoshopAutomationError):
     code = "PHOTOSHOP_REPLACE_FAILED"
 
 
+class PhotoshopLayerNameRestoreError(PhotoshopReplaceError):
+    code = "PHOTOSHOP_LAYER_NAME_RESTORE_FAILED"
+
+
 class PhotoshopSaveError(PhotoshopAutomationError):
     code = "PHOTOSHOP_SAVE_FAILED"
