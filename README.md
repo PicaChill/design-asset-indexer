@@ -6,7 +6,7 @@
 
 > 🧰 一个面向**表情包 / PSD 素材批处理前期整理**的本地离线工具。
 >
-> 最初是为了我自己的**表情包批量修改署名**工作流开发。稳定版 v0.1.0 已完成素材扫描、预览、去重和索引；开发中的 **v0.2.0（Unreleased）**新增 PSD 可编辑文字图层的保守替换流程。
+> 最初是为了我自己的**表情包批量修改署名**工作流开发。v0.1.0 已完成素材扫描、预览、去重和索引；**v0.2.0** 新增 PSD 可编辑文字图层的保守替换流程。
 
 > ⚠️ **PSD 署名替换需要 Windows + 本机 Adobe Photoshop，只修改输出副本。GIF 署名替换仍未实现。**
 
@@ -44,7 +44,7 @@ v0.1.0 先解决素材整理和前处理。v0.2.0 开始加入第一条安全写
 - 🧩 **Contact Sheet**：把预览图片整理成一张联系表，便于快速浏览。
 - 🔎 **dHash 相似度提示**：代码中提供 64-bit dHash 与 Hamming distance 辅助逻辑，用于相似候选提示。
 
-## 🖊️ PSD 批量署名替换（v0.2.0 Unreleased）
+## 🖊️ PSD 批量署名替换（v0.2.0）
 
 v0.2.0 新增 Windows + Photoshop 模式，可批量修改 PSD 中明确匹配的可编辑文字图层署名。
 
@@ -214,12 +214,12 @@ Binary fixtures 由脚本动态生成，不会提交到 Git。
 - PSD 文字替换需要 Windows、Adobe Photoshop 和可选 `pywin32` 依赖。
 - PSD 文字替换只支持可编辑 text layer，不处理栅格化内容或 Smart Object 内部文字。
 - 完全相同的候选超过一个时会安全跳过，不会自动猜测。
-- v0.2.0 仍是 Unreleased 开发版本，尚未创建 `v0.2.0` tag 或 Release。
+- v0.2.0 已于 2026-08-22 发布。
 - 当前只有 CLI，没有 GUI 或一键安装包。
 
 ## 🛠️ 后续计划
 
-- ✅ PSD 可编辑文字图层的完全匹配、dry-run 与输出副本工作流（v0.2.0 Unreleased）。
+- ✅ PSD 可编辑文字图层的完全匹配、dry-run 与输出副本工作流（v0.2.0）。
 - 🚧 更完整的署名识别与人工确认流程。
 - 🚧 GIF 署名与动画处理。
 - 🚧 GUI / 一键使用方式。
@@ -232,7 +232,7 @@ Binary fixtures 由脚本动态生成，不会提交到 Git。
 
 Version 0.1.0 provides recursive inventory, signature-based format detection, basic PSD/PSB metadata parsing, embedded PSD JPEG preview extraction, read-only ZIP indexing, SHA-256 duplicate candidates, CSV/JSON/JSONL reports, contact sheets, and advisory dHash helpers.
 
-Version 0.2.0 (Unreleased) adds optional Windows/Photoshop automation for inspecting editable PSD text layers and replacing one exact match in a copied output PSD. It supports dry-run, skips ambiguous matches, never overwrites existing outputs, and does not save source PSDs. Rasterized signatures, Smart Object editing, GIF replacement, and a GUI are not supported.
+Version 0.2.0 adds optional Windows/Photoshop automation for inspecting editable PSD text layers and replacing one exact match in a copied output PSD. It supports dry-run, skips ambiguous matches, never overwrites existing outputs, and does not save source PSDs. Rasterized signatures, Smart Object editing, GIF replacement, and a GUI are not supported.
 
 Files stay local; the tool has no uploads or telemetry. Inspection reports may contain PSD text contents and should be reviewed before sharing.
 

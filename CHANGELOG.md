@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented here.
 
-## 0.2.0 - Unreleased
+## 0.2.0 - 2026-08-22
 
 - Add Photoshop-backed PSD text-layer inspection with nested layer paths.
 - Add exact signature replacement with optional layer-name filtering.
