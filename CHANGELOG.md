@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented here.
 
+## 0.2.0 - Unreleased
+
+- Add Photoshop-backed PSD text-layer inspection with nested layer paths.
+- Add exact signature replacement with optional layer-name filtering.
+- Add dry-run plans, ambiguity-safe skips, and structured batch reports.
+- Add a source-preserving workflow that modifies only copied output PSDs.
+- Remove newly created output copies when replacement or saving fails.
+- Add optional Windows `pywin32` integration and Photoshop availability checks.
+- Add cross-platform fake-adapter tests and an opt-in synthetic Photoshop canary.
+
 ## 0.1.0 - 2026-08-22
 
 - Add offline, read-only recursive asset inventory.

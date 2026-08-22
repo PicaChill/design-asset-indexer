@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import json
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 
 INVENTORY_FIELDS = [
@@ -32,8 +32,14 @@ def write_jsonl(path: Path, rows: Iterable[dict]) -> None:
             handle.write(json.dumps(row, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n")
 
 
-def write_inventory_csv(path: Path, rows: Iterable[dict]) -> None:
+def write_csv(path: Path, rows: Iterable[dict], fieldnames: Sequence[str]) -> None:
+    """Write a deterministic UTF-8 CSV report with an explicit schema."""
+
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=INVENTORY_FIELDS)
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
+
+
+def write_inventory_csv(path: Path, rows: Iterable[dict]) -> None:
+    write_csv(path, rows, INVENTORY_FIELDS)
