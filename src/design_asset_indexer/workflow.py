@@ -33,6 +33,7 @@ from .workflow_models import (
     InspectRunResult,
     OutputSnapshot,
     PlanItem,
+    PlanRunResult,
     PlanValidation,
     PlanValidationStatus,
     SignatureExecutionPlan,
@@ -52,6 +53,10 @@ EventTarget = WorkflowEventSink | Callable[[WorkflowEvent], None] | None
 
 class WorkflowPlanChangedError(RuntimeError):
     """The candidate state changed while a dry-run plan was being built."""
+
+
+class WorkflowPlanCancelledError(RuntimeError):
+    """A convenience plan request was cancelled before a complete plan existed."""
 
 
 class _EventDispatcher:
@@ -346,18 +351,54 @@ def inspect_signature_workflow(
         cancelled=cancelled,
         stale=False,
         max_files_reached=truncated,
+        candidate_count=len(candidates),
+        selected_count=total,
         diagnostics=tuple(events.diagnostics),
     )
 
 
-def create_signature_execution_plan(
+def _plan_run_result(
+    *,
+    plan: SignatureExecutionPlan | None,
+    items: list[PlanItem],
+    rows: list[dict],
+    events: _EventDispatcher,
+    selected_count: int,
+    candidate_count: int,
+    cancelled: bool,
+    stale: bool,
+    max_files_reached: bool,
+) -> PlanRunResult:
+    summary = _replacement_summary(
+        rows,
+        file_count=selected_count,
+        truncated=max_files_reached,
+        dry_run=True,
+    )
+    return PlanRunResult(
+        plan=plan,
+        items=tuple(items),
+        summary=freeze_summary(summary),
+        processed_count=len(items),
+        remaining_count=selected_count - len(items),
+        cancelled=cancelled,
+        stale=stale,
+        max_files_reached=max_files_reached,
+        candidate_count=candidate_count,
+        selected_count=selected_count,
+        diagnostics=tuple(events.diagnostics),
+    )
+
+
+def _plan_signature_workflow_engine(
     options: WorkflowOptions,
     rule: SignatureRule,
     adapter: SignatureAdapter,
     *,
+    cancellation_token: CancellationToken | None = None,
     event_sink: EventTarget = None,
-) -> SignatureExecutionPlan:
-    """Create a deterministic, immutable dry-run plan and v0.2 reports."""
+) -> PlanRunResult:
+    """Build a plan cooperatively; partial runs never return an executable plan."""
 
     normalized = _normalized_options(options)
     candidates = _candidate_files(normalized)
@@ -367,7 +408,7 @@ def create_signature_execution_plan(
     selected_relatives = _relative_paths(normalized.input_dir, files)
     sources_before = _source_snapshot(normalized.input_dir, files)
     outputs_before = _output_snapshot(normalized.output_dir, selected_relatives)
-    normalized.output_dir.mkdir(parents=True, exist_ok=True)
+    token = cancellation_token or CancellationToken()
     events = _EventDispatcher(event_sink)
     total = len(files)
     events.emit(
@@ -382,6 +423,8 @@ def create_signature_execution_plan(
     rows: list[dict] = []
     plan_items: list[PlanItem] = []
     for index, source_path in enumerate(files, start=1):
+        if token.cancelled:
+            break
         relative = source_path.relative_to(normalized.input_dir).as_posix()
         events.emit(
             WorkflowEvent(
@@ -425,18 +468,70 @@ def create_signature_execution_plan(
             )
         )
 
-    candidates_after = _candidate_files(normalized)
-    if _relative_paths(normalized.input_dir, candidates_after) != candidate_relatives:
-        raise WorkflowPlanChangedError(
-            "Source candidate set changed during plan generation"
+    cancelled = len(plan_items) < total and token.cancelled
+    if cancelled:
+        events.emit(
+            WorkflowEvent(
+                WorkflowPhase.DRY_RUN,
+                WorkflowEventKind.RUN_CANCELLED,
+                len(plan_items),
+                total,
+            )
         )
-    if _source_snapshot(normalized.input_dir, files) != sources_before:
-        raise WorkflowPlanChangedError(
-            "Source file changed during plan generation"
+        return _plan_run_result(
+            plan=None,
+            items=plan_items,
+            rows=rows,
+            events=events,
+            selected_count=total,
+            candidate_count=len(candidates),
+            cancelled=True,
+            stale=False,
+            max_files_reached=truncated,
         )
-    if _output_snapshot(normalized.output_dir, selected_relatives) != outputs_before:
-        raise WorkflowPlanChangedError(
-            "Output state changed during plan generation"
+
+    stale_status: PlanValidationStatus | None = None
+    try:
+        candidates_after = _candidate_files(normalized)
+        if _relative_paths(normalized.input_dir, candidates_after) != candidate_relatives:
+            stale_status = PlanValidationStatus.STALE_SOURCE_SET
+    except (OSError, ValueError):
+        stale_status = PlanValidationStatus.STALE_SOURCE_SET
+    if stale_status is None:
+        try:
+            if _source_snapshot(normalized.input_dir, files) != sources_before:
+                stale_status = PlanValidationStatus.STALE_SOURCE_FILE
+        except WorkflowPlanChangedError:
+            stale_status = PlanValidationStatus.STALE_SOURCE_FILE
+    if stale_status is None:
+        try:
+            for relative in selected_relatives:
+                _output_file(normalized.output_dir, relative)
+            if _output_snapshot(normalized.output_dir, selected_relatives) != outputs_before:
+                stale_status = PlanValidationStatus.STALE_OUTPUT
+        except (ValueError, WorkflowPlanChangedError):
+            stale_status = PlanValidationStatus.STALE_OUTPUT
+
+    if stale_status is not None:
+        events.emit(
+            WorkflowEvent(
+                WorkflowPhase.DRY_RUN,
+                WorkflowEventKind.RUN_STOPPED_STALE,
+                len(plan_items),
+                total,
+                status=stale_status.value,
+            )
+        )
+        return _plan_run_result(
+            plan=None,
+            items=plan_items,
+            rows=rows,
+            events=events,
+            selected_count=total,
+            candidate_count=len(candidates),
+            cancelled=False,
+            stale=True,
+            max_files_reached=truncated,
         )
 
     summary = _replacement_summary(
@@ -445,6 +540,7 @@ def create_signature_execution_plan(
         truncated=truncated,
         dry_run=True,
     )
+    normalized.output_dir.mkdir(parents=True, exist_ok=True)
     _write_plan_reports(normalized.output_dir, rows, summary)
     items = tuple(plan_items)
     plan_id = _plan_id_from_parts(
@@ -464,7 +560,7 @@ def create_signature_execution_plan(
             total,
         )
     )
-    return SignatureExecutionPlan(
+    plan = SignatureExecutionPlan(
         plan_id=plan_id,
         created_at=datetime.now(timezone.utc).isoformat(),
         options=normalized,
@@ -476,6 +572,60 @@ def create_signature_execution_plan(
         max_files_reached=truncated,
         diagnostics=tuple(events.diagnostics),
     )
+    return _plan_run_result(
+        plan=plan,
+        items=plan_items,
+        rows=rows,
+        events=events,
+        selected_count=total,
+        candidate_count=len(candidates),
+        cancelled=False,
+        stale=False,
+        max_files_reached=truncated,
+    )
+
+
+def plan_signature_workflow(
+    options: WorkflowOptions,
+    rule: SignatureRule,
+    adapter: SignatureAdapter,
+    *,
+    cancellation_token: CancellationToken | None = None,
+    event_sink: EventTarget = None,
+) -> PlanRunResult:
+    """Create a cancellable dry-run result for a future GUI/controller."""
+
+    return _plan_signature_workflow_engine(
+        options,
+        rule,
+        adapter,
+        cancellation_token=cancellation_token,
+        event_sink=event_sink,
+    )
+
+
+def create_signature_execution_plan(
+    options: WorkflowOptions,
+    rule: SignatureRule,
+    adapter: SignatureAdapter,
+    *,
+    cancellation_token: CancellationToken | None = None,
+    event_sink: EventTarget = None,
+) -> SignatureExecutionPlan:
+    """Convenience wrapper requiring a complete, executable dry-run plan."""
+
+    result = _plan_signature_workflow_engine(
+        options,
+        rule,
+        adapter,
+        cancellation_token=cancellation_token,
+        event_sink=event_sink,
+    )
+    if result.cancelled:
+        raise WorkflowPlanCancelledError("Plan generation was cancelled")
+    if result.stale or result.plan is None:
+        raise WorkflowPlanChangedError("Plan state changed during generation")
+    return result.plan
 
 
 def _options_match(current: WorkflowOptions, expected: WorkflowOptions) -> bool:
@@ -534,12 +684,16 @@ def validate_execution_plan(
             )
 
     output = plan.options.output_dir
-    if output.exists() and output.resolve(strict=False) != output:
+    try:
+        if output.exists() and output.resolve(strict=False) != output:
+            return PlanValidation(PlanValidationStatus.STALE_OUTPUT)
+    except OSError:
         return PlanValidation(PlanValidationStatus.STALE_OUTPUT)
     for expected in plan.output_snapshot:
         try:
+            _output_file(output, expected.relative_path)
             current = _one_output_snapshot(output, expected.relative_path)
-        except WorkflowPlanChangedError:
+        except (ValueError, WorkflowPlanChangedError):
             return PlanValidation(
                 PlanValidationStatus.STALE_OUTPUT,
                 expected.relative_path,
@@ -641,6 +795,8 @@ def _execution_result(
         cancelled=cancelled,
         stale=stale,
         max_files_reached=plan.max_files_reached,
+        candidate_count=plan.candidate_count,
+        selected_count=plan.selected_count,
         workflow_status=workflow_status,
         diagnostics=tuple(plan.diagnostics) + tuple(events.diagnostics),
     )
@@ -655,6 +811,8 @@ def execute_signature_plan(
 ) -> ExecutionRunResult:
     """Execute only the immutable plan; no replacement parameters are accepted."""
 
+    if not isinstance(plan, SignatureExecutionPlan):
+        raise TypeError("a complete SignatureExecutionPlan is required")
     token = cancellation_token or CancellationToken()
     events = _EventDispatcher(event_sink)
     total = len(plan.items)
@@ -735,6 +893,30 @@ def execute_signature_plan(
                 item.relative_path,
             )
         )
+        final_boundary = _validate_item_boundary(plan, item.relative_path)
+        if not final_boundary.valid:
+            stopped_stale = True
+            events.emit(
+                WorkflowEvent(
+                    WorkflowPhase.EXECUTION,
+                    WorkflowEventKind.FILE_RESULT,
+                    index,
+                    total,
+                    item.relative_path,
+                    "EXECUTION_STOPPED_PLAN_STALE",
+                )
+            )
+            events.emit(
+                WorkflowEvent(
+                    WorkflowPhase.EXECUTION,
+                    WorkflowEventKind.RUN_STOPPED_STALE,
+                    len(rows),
+                    total,
+                    item.relative_path,
+                    final_boundary.status.value,
+                )
+            )
+            break
 
         if item.decision == "WOULD_REPLACE":
             source_path = plan.options.input_dir / Path(item.relative_path)
@@ -770,6 +952,54 @@ def execute_signature_plan(
                     )
                 )
                 break
+            if row["error_code"].startswith("OUTPUT_PATH_ESCAPE"):
+                stopped_stale = True
+                events.emit(
+                    WorkflowEvent(
+                        WorkflowPhase.EXECUTION,
+                        WorkflowEventKind.FILE_RESULT,
+                        index,
+                        total,
+                        item.relative_path,
+                        "EXECUTION_STOPPED_PLAN_STALE",
+                    )
+                )
+                events.emit(
+                    WorkflowEvent(
+                        WorkflowPhase.EXECUTION,
+                        WorkflowEventKind.RUN_STOPPED_STALE,
+                        len(rows),
+                        total,
+                        item.relative_path,
+                        PlanValidationStatus.STALE_OUTPUT.value,
+                    )
+                )
+                break
+            if row["error_code"].startswith("FILESYSTEM_ERROR"):
+                race_boundary = _validate_item_boundary(plan, item.relative_path)
+                if not race_boundary.valid:
+                    stopped_stale = True
+                    events.emit(
+                        WorkflowEvent(
+                            WorkflowPhase.EXECUTION,
+                            WorkflowEventKind.FILE_RESULT,
+                            index,
+                            total,
+                            item.relative_path,
+                            "EXECUTION_STOPPED_PLAN_STALE",
+                        )
+                    )
+                    events.emit(
+                        WorkflowEvent(
+                            WorkflowPhase.EXECUTION,
+                            WorkflowEventKind.RUN_STOPPED_STALE,
+                            len(rows),
+                            total,
+                            item.relative_path,
+                            race_boundary.status.value,
+                        )
+                    )
+                    break
         else:
             row = _formal_row_from_plan_item(plan, item)
 
@@ -834,7 +1064,12 @@ def execute_signature_plan(
 
 
 def build_public_diagnostic(
-    result: InspectRunResult | SignatureExecutionPlan | ExecutionRunResult,
+    result: (
+        InspectRunResult
+        | PlanRunResult
+        | SignatureExecutionPlan
+        | ExecutionRunResult
+    ),
 ) -> dict:
     """Build a local/public-safe summary without paths, filenames, or text."""
 
@@ -851,10 +1086,50 @@ def build_public_diagnostic(
             "file_count": len(result.items),
             "processed_count": len(result.items),
             "remaining_count": 0,
+            "candidate_count": result.candidate_count,
+            "selected_count": result.selected_count,
+            "unplanned_count": result.unplanned_count,
+            "partial_plan": result.partial_plan,
+            "planned_items_complete": True,
+            "corpus_complete": not result.partial_plan,
             "status_counts": status_counts,
             "max_files_reached": result.max_files_reached,
             "cancelled": False,
             "stale": False,
+            "error_codes": error_codes,
+            "diagnostics": sorted(set(result.diagnostics)),
+        }
+
+    if isinstance(result, PlanRunResult):
+        error_codes = sorted(
+            {item.error_code for item in result.items if item.error_code}
+        )
+        phase = (
+            "DRY_RUN_CANCELLED"
+            if result.cancelled
+            else "DRY_RUN_STOPPED_STALE"
+            if result.stale
+            else "DRY_RUN_REVIEW"
+        )
+        status_counts = result.summary.get("status_counts", {})
+        return {
+            "app_version": __version__,
+            "phase": phase,
+            "file_count": int(result.summary.get("file_count", 0)),
+            "processed_count": result.processed_count,
+            "remaining_count": result.remaining_count,
+            "candidate_count": result.candidate_count,
+            "selected_count": result.selected_count,
+            "unplanned_count": result.unplanned_count,
+            "partial_plan": result.partial_plan,
+            "planned_items_complete": result.planned_items_complete,
+            "corpus_complete": result.corpus_complete,
+            "status_counts": (
+                dict(status_counts) if isinstance(status_counts, Mapping) else {}
+            ),
+            "max_files_reached": result.max_files_reached,
+            "cancelled": result.cancelled,
+            "stale": result.stale,
             "error_codes": error_codes,
             "diagnostics": sorted(set(result.diagnostics)),
         }
@@ -874,6 +1149,12 @@ def build_public_diagnostic(
         "file_count": int(result.summary.get("file_count", 0)),
         "processed_count": result.processed_count,
         "remaining_count": result.remaining_count,
+        "candidate_count": result.candidate_count,
+        "selected_count": result.selected_count,
+        "unplanned_count": result.unplanned_count,
+        "partial_plan": result.partial_plan,
+        "planned_items_complete": result.planned_items_complete,
+        "corpus_complete": result.corpus_complete,
         "status_counts": dict(status_counts) if isinstance(status_counts, Mapping) else {},
         "max_files_reached": result.max_files_reached,
         "cancelled": result.cancelled,

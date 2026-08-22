@@ -378,9 +378,40 @@ def _replace_row(
 
 
 def _output_file(destination: Path, relative: str) -> Path:
+    """Return a contained output path with safe existing ancestry.
+
+    ``Path.resolve`` follows existing Windows junctions/reparse points as well
+    as ordinary symlinks.  Checking each existing ancestor separately also
+    rejects a regular file where a directory would be required.
+    """
+
+    try:
+        canonical_destination = destination.resolve(strict=False)
+    except OSError as error:
+        raise ValueError("output directory could not be resolved") from error
+    if destination.exists() and not destination.is_dir():
+        raise ValueError("output directory is not a directory")
     candidate = destination / Path(relative)
-    if not candidate.resolve(strict=False).is_relative_to(destination):
+    try:
+        resolved_candidate = candidate.resolve(strict=False)
+    except OSError as error:
+        raise ValueError("output file could not be resolved") from error
+    if not resolved_candidate.is_relative_to(canonical_destination):
         raise ValueError("output file would escape the output directory")
+
+    current = destination
+    for component in Path(relative).parts[:-1]:
+        current = current / component
+        if not (current.exists() or current.is_symlink()):
+            break
+        if not current.is_dir():
+            raise ValueError("output path ancestor is not a directory")
+        try:
+            resolved_ancestor = current.resolve(strict=True)
+        except OSError as error:
+            raise ValueError("output path ancestor could not be resolved") from error
+        if not resolved_ancestor.is_relative_to(canonical_destination):
+            raise ValueError("output file would escape the output directory")
     return candidate
 
 

@@ -10,14 +10,18 @@ import pytest
 
 from design_asset_indexer.photoshop import (
     PhotoshopOpenError,
+    PhotoshopReplaceError,
     ReplaceResult,
     TextLayerInfo,
 )
+import design_asset_indexer.workflow as workflow_module
 from design_asset_indexer.workflow import (
+    WorkflowPlanCancelledError,
     build_public_diagnostic,
     create_signature_execution_plan,
     execute_signature_plan,
     inspect_signature_workflow,
+    plan_signature_workflow,
     validate_execution_plan,
 )
 from design_asset_indexer.workflow_models import (
@@ -47,16 +51,22 @@ class FakeAdapter:
         layers: dict[str, list[TextLayerInfo]] | None = None,
         *,
         inspect_errors: dict[str, Exception] | None = None,
+        replace_errors: dict[str, Exception] | None = None,
+        on_inspect: Callable[[Path], None] | None = None,
         on_replace: Callable[[Path], None] | None = None,
     ) -> None:
         self.layers = layers or {}
         self.inspect_errors = inspect_errors or {}
+        self.replace_errors = replace_errors or {}
+        self.on_inspect = on_inspect
         self.on_replace = on_replace
         self.inspect_calls: list[Path] = []
         self.replace_calls: list[Path] = []
 
     def inspect_text_layers(self, path: Path) -> list[TextLayerInfo]:
         self.inspect_calls.append(path)
+        if self.on_inspect is not None:
+            self.on_inspect(path)
         if path.name in self.inspect_errors:
             raise self.inspect_errors[path.name]
         return list(self.layers.get(path.name, []))
@@ -71,6 +81,8 @@ class FakeAdapter:
         self.replace_calls.append(path)
         if self.on_replace is not None:
             self.on_replace(path)
+        if path.name in self.replace_errors:
+            raise self.replace_errors[path.name]
         return ReplaceResult(1, 1)
 
 
@@ -696,3 +708,565 @@ def test_workflow_reports_keep_v020_summary_schema(tmp_path: Path) -> None:
     assert "cancelled" not in formal_summary
     assert "stale" not in formal_summary
     assert "plan_id" not in formal_summary
+
+
+def test_plan_cancel_before_start_returns_no_executable_plan(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    output = tmp_path / "output"
+    adapter = _matching_adapter("one.psd")
+    token = CancellationToken()
+    token.cancel()
+    events: list[WorkflowEvent] = []
+
+    result = plan_signature_workflow(
+        _options(source, output),
+        _rule(),
+        adapter,
+        cancellation_token=token,
+        event_sink=events.append,
+    )
+
+    assert result.plan is None
+    assert result.cancelled is True
+    assert result.processed_count == 0
+    assert result.remaining_count == 1
+    assert result.planned_items_complete is False
+    assert result.complete is False
+    assert adapter.inspect_calls == []
+    assert not output.exists()
+    assert events[-1].kind is WorkflowEventKind.RUN_CANCELLED
+
+
+def test_plan_cancel_during_first_file_finishes_current_only(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "b.psd")
+    token = CancellationToken()
+    adapter = FakeAdapter(
+        {
+            "a.psd": [_layer("Signature", "OLD")],
+            "b.psd": [_layer("Signature", "OLD")],
+        },
+        on_inspect=lambda path: token.cancel() if path.name == "a.psd" else None,
+    )
+    events: list[WorkflowEvent] = []
+
+    result = plan_signature_workflow(
+        _options(source, tmp_path / "output"),
+        _rule(),
+        adapter,
+        cancellation_token=token,
+        event_sink=events.append,
+    )
+
+    assert result.plan is None
+    assert result.cancelled is True
+    assert result.processed_count == 1
+    assert result.remaining_count == 1
+    assert [path.name for path in adapter.inspect_calls] == ["a.psd"]
+    assert events[-1].kind is WorkflowEventKind.RUN_CANCELLED
+
+
+def test_plan_cancel_after_complete_returns_complete_plan(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    token = CancellationToken()
+    adapter = FakeAdapter(
+        {"one.psd": [_layer("Signature", "OLD")]},
+        on_inspect=lambda _path: token.cancel(),
+    )
+    events: list[WorkflowEvent] = []
+
+    result = plan_signature_workflow(
+        _options(source, tmp_path / "output"),
+        _rule(),
+        adapter,
+        cancellation_token=token,
+        event_sink=events.append,
+    )
+
+    assert result.plan is not None
+    assert result.cancelled is False
+    assert result.planned_items_complete is True
+    assert result.corpus_complete is True
+    assert events[-1].kind is WorkflowEventKind.RUN_COMPLETED
+
+
+def test_plan_source_change_emits_terminal_stale_event(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    path = _make_psd(source, "one.psd")
+    events: list[WorkflowEvent] = []
+    adapter = FakeAdapter(
+        {"one.psd": [_layer("Signature", "OLD")]},
+        on_inspect=lambda _path: path.write_bytes(path.read_bytes() + b"CHANGED"),
+    )
+
+    result = plan_signature_workflow(
+        _options(source, tmp_path / "output"),
+        _rule(),
+        adapter,
+        event_sink=events.append,
+    )
+
+    assert result.plan is None
+    assert result.stale is True
+    assert result.cancelled is False
+    assert events[-1].kind is WorkflowEventKind.RUN_STOPPED_STALE
+    assert events[-1].status == PlanValidationStatus.STALE_SOURCE_FILE.value
+
+
+def test_plan_output_change_emits_terminal_stale_event(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    output = tmp_path / "output"
+    events: list[WorkflowEvent] = []
+    adapter = FakeAdapter(
+        {"one.psd": [_layer("Signature", "OLD")]},
+        on_inspect=lambda _path: _make_psd(output, "one.psd", b"EXTERNAL"),
+    )
+
+    result = plan_signature_workflow(
+        _options(source, output),
+        _rule(),
+        adapter,
+        event_sink=events.append,
+    )
+
+    assert result.plan is None
+    assert result.stale is True
+    assert events[-1].kind is WorkflowEventKind.RUN_STOPPED_STALE
+    assert events[-1].status == PlanValidationStatus.STALE_OUTPUT.value
+    assert not (output / "planned_changes.csv").exists()
+
+
+def test_cancelled_plan_cannot_be_executed(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    adapter = _matching_adapter("one.psd")
+    token = CancellationToken()
+    token.cancel()
+    result = plan_signature_workflow(
+        _options(source, tmp_path / "output"),
+        _rule(),
+        adapter,
+        cancellation_token=token,
+    )
+
+    with pytest.raises(TypeError, match="complete SignatureExecutionPlan"):
+        execute_signature_plan(result.plan, adapter)  # type: ignore[arg-type]
+    assert adapter.replace_calls == []
+
+
+def test_convenience_wrapper_rejects_cancelled_plan(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    token = CancellationToken()
+    token.cancel()
+
+    with pytest.raises(WorkflowPlanCancelledError, match="cancelled"):
+        create_signature_execution_plan(
+            _options(source, tmp_path / "output"),
+            _rule(),
+            _matching_adapter("one.psd"),
+            cancellation_token=token,
+        )
+
+
+def test_plan_workflow_and_convenience_wrapper_share_one_engine(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    options = _options(source, tmp_path / "output")
+    adapter = _matching_adapter("one.psd")
+    original = workflow_module._plan_signature_workflow_engine
+    calls: list[str] = []
+
+    def recording_engine(*args, **kwargs):
+        calls.append("engine")
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(
+        workflow_module,
+        "_plan_signature_workflow_engine",
+        recording_engine,
+    )
+
+    workflow_result = plan_signature_workflow(options, _rule(), adapter)
+    convenience_plan = create_signature_execution_plan(options, _rule(), adapter)
+
+    assert calls == ["engine", "engine"]
+    assert workflow_result.plan is not None
+    assert workflow_result.plan.plan_id == convenience_plan.plan_id
+
+
+def test_inspect_complete_false_when_max_files_reached(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "b.psd")
+
+    result = inspect_signature_workflow(
+        _options(source, tmp_path / "reports", max_files=1),
+        _matching_adapter("a.psd", "b.psd"),
+    )
+
+    assert result.planned_items_complete is True
+    assert result.corpus_complete is False
+    assert result.complete is False
+
+
+def test_execution_complete_false_when_max_files_reached(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "b.psd")
+    adapter = _matching_adapter("a.psd", "b.psd")
+    plan = create_signature_execution_plan(
+        _options(source, tmp_path / "output", max_files=1),
+        _rule(),
+        adapter,
+    )
+
+    result = execute_signature_plan(plan, adapter)
+
+    assert result.planned_items_complete is True
+    assert result.corpus_complete is False
+    assert result.complete is False
+
+
+def test_planned_items_complete_true_for_finished_truncated_run(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "b.psd")
+    adapter = _matching_adapter("a.psd", "b.psd")
+    plan = create_signature_execution_plan(
+        _options(source, tmp_path / "output", max_files=1),
+        _rule(),
+        adapter,
+    )
+
+    result = execute_signature_plan(plan, adapter)
+
+    assert result.processed_count == result.selected_count == 1
+    assert result.remaining_count == 0
+    assert result.planned_items_complete is True
+
+
+def test_corpus_complete_false_for_finished_truncated_run(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "b.psd")
+    adapter = _matching_adapter("a.psd", "b.psd")
+    result = plan_signature_workflow(
+        _options(source, tmp_path / "output", max_files=1),
+        _rule(),
+        adapter,
+    )
+
+    assert result.planned_items_complete is True
+    assert result.corpus_complete is False
+    assert result.complete is False
+
+
+def test_candidate_selected_unplanned_counts(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    for name in ("a.psd", "b.psd", "c.psd"):
+        _make_psd(source, name)
+    adapter = _matching_adapter("a.psd", "b.psd", "c.psd")
+    result = plan_signature_workflow(
+        _options(source, tmp_path / "output", max_files=2),
+        _rule(),
+        adapter,
+    )
+
+    assert result.candidate_count == 3
+    assert result.selected_count == 2
+    assert result.unplanned_count == 1
+    assert result.partial_plan is True
+    assert result.plan is not None
+    assert result.plan.candidate_count == 3
+    assert result.plan.selected_count == 2
+    assert result.plan.unplanned_count == 1
+
+
+def test_public_diagnostic_distinguishes_partial_plan(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "b.psd")
+    plan = create_signature_execution_plan(
+        _options(source, tmp_path / "output", max_files=1),
+        _rule(),
+        _matching_adapter("a.psd", "b.psd"),
+    )
+
+    diagnostic = build_public_diagnostic(plan)
+
+    assert diagnostic["candidate_count"] == 2
+    assert diagnostic["selected_count"] == 1
+    assert diagnostic["unplanned_count"] == 1
+    assert diagnostic["partial_plan"] is True
+    assert diagnostic["planned_items_complete"] is True
+    assert diagnostic["corpus_complete"] is False
+
+
+def test_parent_symlink_created_after_plan_blocks_all_mutation(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "nested/b.psd")
+    output = tmp_path / "output"
+    adapter = _matching_adapter("a.psd", "b.psd")
+    plan = create_signature_execution_plan(
+        _options(source, output, recursive=True), _rule(), adapter
+    )
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    try:
+        (output / "nested").symlink_to(outside, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"directory symlink unavailable: {error}")
+
+    result = execute_signature_plan(plan, adapter)
+
+    assert result.stale is True
+    assert result.processed_count == 0
+    assert adapter.replace_calls == []
+    assert not (output / "a.psd").exists()
+    assert not (outside / "b.psd").exists()
+
+
+def test_later_item_parent_escape_blocks_first_item_mutation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "nested/b.psd")
+    output = tmp_path / "output"
+    adapter = _matching_adapter("a.psd", "b.psd")
+    plan = create_signature_execution_plan(
+        _options(source, output, recursive=True), _rule(), adapter
+    )
+    original = workflow_module._output_file
+
+    def reject_later(destination: Path, relative: str) -> Path:
+        if relative == "nested/b.psd":
+            raise ValueError("simulated output ancestry escape")
+        return original(destination, relative)
+
+    monkeypatch.setattr(workflow_module, "_output_file", reject_later)
+
+    result = execute_signature_plan(plan, adapter)
+
+    assert result.stale is True
+    assert result.processed_count == 0
+    assert adapter.replace_calls == []
+    assert not (output / "a.psd").exists()
+
+
+def test_non_directory_output_ancestor_blocks_all_mutation(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "nested/b.psd")
+    output = tmp_path / "output"
+    adapter = _matching_adapter("a.psd", "b.psd")
+    plan = create_signature_execution_plan(
+        _options(source, output, recursive=True), _rule(), adapter
+    )
+    (output / "nested").write_bytes(b"NOT_A_DIRECTORY")
+
+    result = execute_signature_plan(plan, adapter)
+
+    assert result.stale is True
+    assert result.processed_count == 0
+    assert adapter.replace_calls == []
+    assert not (output / "a.psd").exists()
+
+
+def test_preflight_validates_every_planned_output_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "nested/b.psd")
+    plan = create_signature_execution_plan(
+        _options(source, tmp_path / "output", recursive=True),
+        _rule(),
+        _matching_adapter("a.psd", "b.psd"),
+    )
+    original = workflow_module._output_file
+    checked: list[str] = []
+
+    def recording_output_file(destination: Path, relative: str) -> Path:
+        checked.append(relative)
+        return original(destination, relative)
+
+    monkeypatch.setattr(workflow_module, "_output_file", recording_output_file)
+
+    validation = validate_execution_plan(plan)
+
+    assert validation.valid is True
+    assert checked == ["a.psd", "nested/b.psd"]
+
+
+def test_event_sink_creates_output_before_mutation_stops_stale(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    output = tmp_path / "output"
+    adapter = _matching_adapter("one.psd")
+    plan = create_signature_execution_plan(_options(source, output), _rule(), adapter)
+    external = b"EXTERNAL"
+
+    def sink(event: WorkflowEvent) -> None:
+        if event.kind is WorkflowEventKind.FILE_STARTED:
+            _make_psd(output, "one.psd", external)
+
+    result = execute_signature_plan(plan, adapter, event_sink=sink)
+
+    assert result.stale is True
+    assert result.processed_count == 0
+    assert adapter.replace_calls == []
+    assert (output / "one.psd").read_bytes().endswith(external)
+
+
+def test_event_sink_changes_source_before_mutation_stops_stale(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "input"
+    path = _make_psd(source, "one.psd")
+    adapter = _matching_adapter("one.psd")
+    plan = create_signature_execution_plan(
+        _options(source, tmp_path / "output"), _rule(), adapter
+    )
+
+    def sink(event: WorkflowEvent) -> None:
+        if event.kind is WorkflowEventKind.FILE_STARTED:
+            path.write_bytes(path.read_bytes() + b"CHANGED")
+
+    result = execute_signature_plan(plan, adapter, event_sink=sink)
+
+    assert result.stale is True
+    assert result.processed_count == 0
+    assert adapter.replace_calls == []
+
+
+def test_output_escape_after_file_started_stops_stale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    output = tmp_path / "output"
+    adapter = _matching_adapter("one.psd")
+    plan = create_signature_execution_plan(_options(source, output), _rule(), adapter)
+    original = workflow_module._output_file
+    escape_active = False
+
+    def sink(event: WorkflowEvent) -> None:
+        nonlocal escape_active
+        if event.kind is WorkflowEventKind.FILE_STARTED:
+            escape_active = True
+
+    def race_output_file(destination: Path, relative: str) -> Path:
+        if escape_active:
+            raise ValueError("simulated output escape")
+        return original(destination, relative)
+
+    monkeypatch.setattr(workflow_module, "_output_file", race_output_file)
+
+    result = execute_signature_plan(plan, adapter, event_sink=sink)
+
+    assert result.stale is True
+    assert result.processed_count == 0
+    assert adapter.replace_calls == []
+
+
+def test_source_deleted_after_file_started_stops_stale(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    path = _make_psd(source, "one.psd")
+    adapter = _matching_adapter("one.psd")
+    plan = create_signature_execution_plan(
+        _options(source, tmp_path / "output"), _rule(), adapter
+    )
+
+    def sink(event: WorkflowEvent) -> None:
+        if event.kind is WorkflowEventKind.FILE_STARTED:
+            path.unlink()
+
+    result = execute_signature_plan(plan, adapter, event_sink=sink)
+
+    assert result.stale is True
+    assert result.processed_count == 0
+    assert adapter.replace_calls == []
+
+
+def test_non_stale_photoshop_failure_remains_per_file_failure(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "b.psd")
+    output = tmp_path / "output"
+    adapter = FakeAdapter(
+        {
+            "a.psd": [_layer("Signature", "OLD")],
+            "b.psd": [_layer("Signature", "OLD")],
+        },
+        replace_errors={"a.psd": PhotoshopReplaceError("replacement failed")},
+    )
+    plan = create_signature_execution_plan(_options(source, output), _rule(), adapter)
+
+    result = execute_signature_plan(plan, adapter)
+
+    assert result.stale is False
+    assert result.cancelled is False
+    assert result.processed_count == 2
+    assert [item.status for item in result.items] == ["FAILED_REPLACE", "REPLACED"]
+    assert not (output / "a.psd").exists()
+    assert (output / "b.psd").is_file()
+
+
+def test_filesystem_error_with_changed_boundary_stops_stale(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "input"
+    first = _make_psd(source, "a.psd")
+    _make_psd(source, "b.psd")
+    output = tmp_path / "output"
+    adapter = _matching_adapter("a.psd", "b.psd")
+    plan = create_signature_execution_plan(_options(source, output), _rule(), adapter)
+
+    def filesystem_race(*args, **kwargs):
+        first.unlink()
+        return {
+            "relative_path": "a.psd",
+            "status": "FAILED_REPLACE",
+            "matched_layer_count": 1,
+            "changed_layer_count": 0,
+            "old_text": "OLD",
+            "new_text": "NEW",
+            "output_relative_path": "a.psd",
+            "error_code": "FILESYSTEM_ERROR",
+            "error_message": "Filesystem operation failed",
+        }
+
+    monkeypatch.setattr(
+        workflow_module,
+        "_execute_planned_replacement",
+        filesystem_race,
+    )
+
+    result = execute_signature_plan(plan, adapter)
+
+    assert result.stale is True
+    assert result.processed_count == 0
+    assert result.remaining_count == 2
+    assert not (output / "b.psd").exists()

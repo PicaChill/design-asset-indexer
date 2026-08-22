@@ -105,6 +105,22 @@ class SignatureExecutionPlan:
     max_files_reached: bool
     diagnostics: tuple[str, ...] = ()
 
+    @property
+    def candidate_count(self) -> int:
+        return len(self.candidate_relative_paths)
+
+    @property
+    def selected_count(self) -> int:
+        return len(self.items)
+
+    @property
+    def unplanned_count(self) -> int:
+        return max(0, self.candidate_count - self.selected_count)
+
+    @property
+    def partial_plan(self) -> bool:
+        return self.unplanned_count > 0 or self.max_files_reached
+
 
 @dataclass(frozen=True)
 class PlanValidation:
@@ -186,11 +202,82 @@ class InspectRunResult:
     cancelled: bool
     stale: bool
     max_files_reached: bool
+    candidate_count: int
+    selected_count: int
     diagnostics: tuple[str, ...] = ()
 
     @property
-    def complete(self) -> bool:
+    def unplanned_count(self) -> int:
+        return max(0, self.candidate_count - self.selected_count)
+
+    @property
+    def partial_plan(self) -> bool:
+        return (
+            self.cancelled
+            or self.stale
+            or self.unplanned_count > 0
+            or self.processed_count < self.selected_count
+        )
+
+    @property
+    def planned_items_complete(self) -> bool:
         return not self.cancelled and not self.stale and self.remaining_count == 0
+
+    @property
+    def corpus_complete(self) -> bool:
+        return self.planned_items_complete and self.unplanned_count == 0
+
+    @property
+    def complete(self) -> bool:
+        """Fail-safe alias: complete means the whole candidate corpus is complete."""
+
+        return self.corpus_complete
+
+
+@dataclass(frozen=True)
+class PlanRunResult:
+    plan: SignatureExecutionPlan | None
+    items: tuple[PlanItem, ...]
+    summary: Mapping[str, object]
+    processed_count: int
+    remaining_count: int
+    cancelled: bool
+    stale: bool
+    max_files_reached: bool
+    candidate_count: int
+    selected_count: int
+    diagnostics: tuple[str, ...] = ()
+
+    @property
+    def unplanned_count(self) -> int:
+        return max(0, self.candidate_count - self.selected_count)
+
+    @property
+    def partial_plan(self) -> bool:
+        return (
+            self.plan is None
+            or self.cancelled
+            or self.stale
+            or self.unplanned_count > 0
+            or self.processed_count < self.selected_count
+        )
+
+    @property
+    def planned_items_complete(self) -> bool:
+        return (
+            self.plan is not None
+            and not self.cancelled
+            and not self.stale
+            and self.remaining_count == 0
+        )
+
+    @property
+    def corpus_complete(self) -> bool:
+        return self.planned_items_complete and self.unplanned_count == 0
+
+    @property
+    def complete(self) -> bool:
+        return self.corpus_complete
 
 
 @dataclass(frozen=True)
@@ -203,9 +290,34 @@ class ExecutionRunResult:
     cancelled: bool
     stale: bool
     max_files_reached: bool
+    candidate_count: int
+    selected_count: int
     workflow_status: str
     diagnostics: tuple[str, ...] = ()
 
     @property
-    def complete(self) -> bool:
+    def unplanned_count(self) -> int:
+        return max(0, self.candidate_count - self.selected_count)
+
+    @property
+    def partial_plan(self) -> bool:
+        return (
+            self.cancelled
+            or self.stale
+            or self.unplanned_count > 0
+            or self.processed_count < self.selected_count
+        )
+
+    @property
+    def planned_items_complete(self) -> bool:
         return not self.cancelled and not self.stale and self.remaining_count == 0
+
+    @property
+    def corpus_complete(self) -> bool:
+        return self.planned_items_complete and self.unplanned_count == 0
+
+    @property
+    def complete(self) -> bool:
+        """Fail-safe alias: complete means the whole candidate corpus is complete."""
+
+        return self.corpus_complete
