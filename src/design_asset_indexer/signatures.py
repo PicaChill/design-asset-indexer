@@ -115,17 +115,14 @@ def _candidate_paths(root: Path, recursive: bool) -> list[Path]:
     return paths
 
 
-def _select_psd_files(
+def _matching_psd_files(
     root: Path,
     *,
     recursive: bool,
     include: str,
-    max_files: int,
-) -> tuple[list[Path], bool]:
+) -> list[Path]:
     if not include:
         raise ValueError("include pattern must not be empty")
-    if max_files < 1:
-        raise ValueError("maximum file count must be positive")
 
     selected: list[Path] = []
     for path in _candidate_paths(root, recursive):
@@ -149,6 +146,23 @@ def _select_psd_files(
             path.relative_to(root).as_posix(),
         )
     )
+    return selected
+
+
+def _select_psd_files(
+    root: Path,
+    *,
+    recursive: bool,
+    include: str,
+    max_files: int,
+) -> tuple[list[Path], bool]:
+    if max_files < 1:
+        raise ValueError("maximum file count must be positive")
+    selected = _matching_psd_files(
+        root,
+        recursive=recursive,
+        include=include,
+    )
     truncated = len(selected) > max_files
     return selected[:max_files], truncated
 
@@ -171,6 +185,109 @@ def _error_details(error: Exception, fallback_code: str) -> tuple[str, str]:
     if isinstance(error, OSError):
         return "FILESYSTEM_ERROR", "Filesystem operation failed"
     return fallback_code, "Photoshop operation failed"
+
+
+def _inspect_one_signature(
+    path: Path,
+    relative: str,
+    adapter: SignatureAdapter,
+    *,
+    layer_name: str | None,
+    contains_text: str | None,
+) -> tuple[list[dict], int, int, int, int]:
+    """Inspect one PSD and return rows plus opened/layer/match/error counts."""
+
+    try:
+        layers = adapter.inspect_text_layers(path)
+    except Exception as error:
+        error_code, _message = _error_details(error, "PHOTOSHOP_INSPECT_FAILED")
+        return (
+            [
+                {
+                    "relative_path": relative,
+                    "document_opened": False,
+                    "layer_path": "",
+                    "layer_name": "",
+                    "layer_kind": "",
+                    "current_text": "",
+                    "matched": False,
+                    "error": error_code,
+                }
+            ],
+            0,
+            0,
+            0,
+            1,
+        )
+
+    if not layers:
+        return (
+            [
+                {
+                    "relative_path": relative,
+                    "document_opened": True,
+                    "layer_path": "",
+                    "layer_name": "",
+                    "layer_kind": "",
+                    "current_text": "",
+                    "matched": False,
+                    "error": "",
+                }
+            ],
+            1,
+            0,
+            0,
+            0,
+        )
+
+    rows: list[dict] = []
+    matched_count = 0
+    for layer in layers:
+        matched = _matches_layer(
+            layer,
+            layer_name=layer_name,
+            contains_text=contains_text,
+        )
+        matched_count += int(matched)
+        rows.append(
+            {
+                "relative_path": relative,
+                "document_opened": True,
+                "layer_path": layer.layer_path,
+                "layer_name": layer.layer_name,
+                "layer_kind": layer.layer_kind,
+                "current_text": layer.current_text,
+                "matched": matched,
+                "error": "",
+            }
+        )
+    return rows, 1, len(layers), matched_count, 0
+
+
+def _inspection_summary(
+    *,
+    file_count: int,
+    opened_count: int,
+    layer_count: int,
+    matched_count: int,
+    error_count: int,
+    truncated: bool,
+) -> dict:
+    return {
+        "command": "signature-inspect",
+        "file_count": file_count,
+        "document_opened_count": opened_count,
+        "layer_count": layer_count,
+        "matched_layer_count": matched_count,
+        "error_count": error_count,
+        "max_files_reached": truncated,
+    }
+
+
+def _write_inspection_reports(destination: Path, rows: list[dict], summary: dict) -> None:
+    write_csv(destination / "signature_layers.csv", rows, INSPECT_FIELDS)
+    write_jsonl(destination / "signature_layers.jsonl", rows)
+    write_json(destination / "summary.json", summary)
 
 
 def inspect_signatures(
@@ -202,74 +319,28 @@ def inspect_signatures(
     error_count = 0
     for path in files:
         relative = path.relative_to(source).as_posix()
-        try:
-            layers = adapter.inspect_text_layers(path)
-        except Exception as error:
-            error_code, _message = _error_details(error, "PHOTOSHOP_INSPECT_FAILED")
-            error_count += 1
-            rows.append(
-                {
-                    "relative_path": relative,
-                    "document_opened": False,
-                    "layer_path": "",
-                    "layer_name": "",
-                    "layer_kind": "",
-                    "current_text": "",
-                    "matched": False,
-                    "error": error_code,
-                }
-            )
-            continue
+        file_rows, opened, layers, matched, errors = _inspect_one_signature(
+            path,
+            relative,
+            adapter,
+            layer_name=layer_name,
+            contains_text=contains_text,
+        )
+        rows.extend(file_rows)
+        opened_count += opened
+        layer_count += layers
+        matched_count += matched
+        error_count += errors
 
-        opened_count += 1
-        if not layers:
-            rows.append(
-                {
-                    "relative_path": relative,
-                    "document_opened": True,
-                    "layer_path": "",
-                    "layer_name": "",
-                    "layer_kind": "",
-                    "current_text": "",
-                    "matched": False,
-                    "error": "",
-                }
-            )
-            continue
-
-        for layer in layers:
-            matched = _matches_layer(
-                layer,
-                layer_name=layer_name,
-                contains_text=contains_text,
-            )
-            layer_count += 1
-            matched_count += int(matched)
-            rows.append(
-                {
-                    "relative_path": relative,
-                    "document_opened": True,
-                    "layer_path": layer.layer_path,
-                    "layer_name": layer.layer_name,
-                    "layer_kind": layer.layer_kind,
-                    "current_text": layer.current_text,
-                    "matched": matched,
-                    "error": "",
-                }
-            )
-
-    summary = {
-        "command": "signature-inspect",
-        "file_count": len(files),
-        "document_opened_count": opened_count,
-        "layer_count": layer_count,
-        "matched_layer_count": matched_count,
-        "error_count": error_count,
-        "max_files_reached": truncated,
-    }
-    write_csv(destination / "signature_layers.csv", rows, INSPECT_FIELDS)
-    write_jsonl(destination / "signature_layers.jsonl", rows)
-    write_json(destination / "summary.json", summary)
+    summary = _inspection_summary(
+        file_count=len(files),
+        opened_count=opened_count,
+        layer_count=layer_count,
+        matched_count=matched_count,
+        error_count=error_count,
+        truncated=truncated,
+    )
+    _write_inspection_reports(destination, rows, summary)
     return summary
 
 
@@ -307,9 +378,40 @@ def _replace_row(
 
 
 def _output_file(destination: Path, relative: str) -> Path:
+    """Return a contained output path with safe existing ancestry.
+
+    ``Path.resolve`` follows existing Windows junctions/reparse points as well
+    as ordinary symlinks.  Checking each existing ancestor separately also
+    rejects a regular file where a directory would be required.
+    """
+
+    try:
+        canonical_destination = destination.resolve(strict=False)
+    except OSError as error:
+        raise ValueError("output directory could not be resolved") from error
+    if destination.exists() and not destination.is_dir():
+        raise ValueError("output directory is not a directory")
     candidate = destination / Path(relative)
-    if not candidate.resolve(strict=False).is_relative_to(destination):
+    try:
+        resolved_candidate = candidate.resolve(strict=False)
+    except OSError as error:
+        raise ValueError("output file could not be resolved") from error
+    if not resolved_candidate.is_relative_to(canonical_destination):
         raise ValueError("output file would escape the output directory")
+
+    current = destination
+    for component in Path(relative).parts[:-1]:
+        current = current / component
+        if not (current.exists() or current.is_symlink()):
+            break
+        if not current.is_dir():
+            raise ValueError("output path ancestor is not a directory")
+        try:
+            resolved_ancestor = current.resolve(strict=True)
+        except OSError as error:
+            raise ValueError("output path ancestor could not be resolved") from error
+        if not resolved_ancestor.is_relative_to(canonical_destination):
+            raise ValueError("output file would escape the output directory")
     return candidate
 
 
@@ -342,6 +444,278 @@ def _with_cleanup_marker(
     return code, message
 
 
+def _matching_replacement_layers(
+    layers: list[TextLayerInfo],
+    *,
+    old_text: str,
+    layer_name: str | None,
+) -> list[TextLayerInfo]:
+    """The single authoritative exact-match implementation."""
+
+    return [
+        layer
+        for layer in layers
+        if layer.current_text == old_text
+        and (layer_name is None or layer.layer_name == layer_name)
+    ]
+
+
+def _plan_replacement_candidate(
+    source_path: Path,
+    source: Path,
+    destination: Path,
+    adapter: SignatureAdapter,
+    *,
+    old_text: str,
+    new_text: str,
+    layer_name: str | None,
+) -> dict:
+    """Classify one candidate without creating or saving an output PSD."""
+
+    relative = source_path.relative_to(source).as_posix()
+    candidate_output = destination / Path(relative)
+    if candidate_output.exists() or candidate_output.is_symlink():
+        return _replace_row(
+            relative=relative,
+            status="SKIPPED_EXISTS",
+            matched_count=0,
+            changed_count=0,
+            old_text=old_text,
+            new_text=new_text,
+        )
+    try:
+        _output_file(destination, relative)
+    except ValueError as error:
+        return _replace_row(
+            relative=relative,
+            status="FAILED_REPLACE",
+            matched_count=0,
+            changed_count=0,
+            old_text=old_text,
+            new_text=new_text,
+            error_code="OUTPUT_PATH_ESCAPE",
+            error_message=str(error),
+        )
+
+    try:
+        layers = adapter.inspect_text_layers(source_path)
+    except Exception as error:
+        code, message = _error_details(error, "PHOTOSHOP_OPEN_FAILED")
+        status = "FAILED_OPEN" if code.endswith("OPEN_FAILED") else "FAILED_REPLACE"
+        return _replace_row(
+            relative=relative,
+            status=status,
+            matched_count=0,
+            changed_count=0,
+            old_text=old_text,
+            new_text=new_text,
+            error_code=code,
+            error_message=message,
+        )
+
+    matches = _matching_replacement_layers(
+        layers,
+        old_text=old_text,
+        layer_name=layer_name,
+    )
+    if not matches:
+        return _replace_row(
+            relative=relative,
+            status="SKIPPED_NO_MATCH",
+            matched_count=0,
+            changed_count=0,
+            old_text=old_text,
+            new_text=new_text,
+        )
+    if len(matches) > 1:
+        return _replace_row(
+            relative=relative,
+            status="SKIPPED_AMBIGUOUS",
+            matched_count=len(matches),
+            changed_count=0,
+            old_text=old_text,
+            new_text=new_text,
+        )
+    return _replace_row(
+        relative=relative,
+        status="WOULD_REPLACE",
+        matched_count=1,
+        changed_count=0,
+        old_text=old_text,
+        new_text=new_text,
+    )
+
+
+def _execute_planned_replacement(
+    source_path: Path,
+    destination: Path,
+    relative: str,
+    adapter: SignatureAdapter,
+    *,
+    old_text: str,
+    new_text: str,
+    layer_name: str | None,
+) -> dict:
+    """Execute one confirmed match using the existing copy/fail-clean contract."""
+
+    try:
+        output_path = _output_file(destination, relative)
+    except ValueError as error:
+        return _replace_row(
+            relative=relative,
+            status="FAILED_REPLACE",
+            matched_count=1,
+            changed_count=0,
+            old_text=old_text,
+            new_text=new_text,
+            error_code="OUTPUT_PATH_ESCAPE",
+            error_message=str(error),
+        )
+
+    output_created_this_run = False
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        _output_file(destination, relative)
+        try:
+            output_path.touch(exist_ok=False)
+        except FileExistsError:
+            return _replace_row(
+                relative=relative,
+                status="SKIPPED_EXISTS",
+                matched_count=1,
+                changed_count=0,
+                old_text=old_text,
+                new_text=new_text,
+            )
+        output_created_this_run = True
+        copy2(source_path, output_path)
+        result = adapter.replace_exact_text(
+            output_path,
+            old_text,
+            new_text,
+            layer_name=layer_name,
+        )
+        if result.matched_layer_count != 1 or result.changed_layer_count != 1:
+            cleanup_error = _cleanup_created_output(
+                output_path,
+                destination,
+                relative,
+            )
+            error_code, error_message = _with_cleanup_marker(
+                "MATCH_CHANGED_BEFORE_SAVE",
+                "Exact match count changed before output save",
+                cleanup_error,
+            )
+            return _replace_row(
+                relative=relative,
+                status="FAILED_REPLACE",
+                matched_count=result.matched_layer_count,
+                changed_count=result.changed_layer_count,
+                old_text=old_text,
+                new_text=new_text,
+                error_code=error_code,
+                error_message=error_message,
+            )
+    except Exception as error:
+        code, message = _error_details(error, "PHOTOSHOP_REPLACE_FAILED")
+        cleanup_error = ""
+        if output_created_this_run:
+            cleanup_error = _cleanup_created_output(
+                output_path,
+                destination,
+                relative,
+            )
+        code, message = _with_cleanup_marker(code, message, cleanup_error)
+        status = (
+            "FAILED_SAVE"
+            if code.startswith("PHOTOSHOP_SAVE_FAILED")
+            else "FAILED_REPLACE"
+        )
+        return _replace_row(
+            relative=relative,
+            status=status,
+            matched_count=1,
+            changed_count=0,
+            old_text=old_text,
+            new_text=new_text,
+            error_code=code,
+            error_message=message,
+        )
+
+    return _replace_row(
+        relative=relative,
+        status="REPLACED",
+        matched_count=1,
+        changed_count=1,
+        old_text=old_text,
+        new_text=new_text,
+    )
+
+
+def _decision_for_status(status: str) -> str:
+    return {
+        "SKIPPED_NO_MATCH": "SKIP_NO_MATCH",
+        "SKIPPED_AMBIGUOUS": "SKIP_AMBIGUOUS",
+        "SKIPPED_EXISTS": "SKIP_EXISTS",
+        "FAILED_OPEN": "ERROR",
+        "FAILED_REPLACE": "ERROR",
+        "FAILED_SAVE": "ERROR",
+    }.get(status, status)
+
+
+def _plan_report_rows(rows: list[dict]) -> list[dict]:
+    return [
+        {
+            "relative_path": row["relative_path"],
+            "decision": _decision_for_status(row["status"]),
+            "matched_layer_count": row["matched_layer_count"],
+            "old_text": row["old_text"],
+            "new_text": row["new_text"],
+            "output_relative_path": row["output_relative_path"],
+            "error_code": row["error_code"],
+            "error_message": row["error_message"],
+        }
+        for row in rows
+    ]
+
+
+def _replacement_summary(
+    rows: list[dict],
+    *,
+    file_count: int,
+    truncated: bool,
+    dry_run: bool,
+) -> dict:
+    return {
+        "command": "signature-replace",
+        "dry_run": dry_run,
+        "file_count": file_count,
+        "status_counts": dict(
+            sorted(Counter(row["status"] for row in rows).items())
+        ),
+        "matched_layer_count": sum(row["matched_layer_count"] for row in rows),
+        "changed_layer_count": sum(row["changed_layer_count"] for row in rows),
+        "max_files_reached": truncated,
+    }
+
+
+def _write_plan_reports(destination: Path, rows: list[dict], summary: dict) -> None:
+    plan_rows = _plan_report_rows(rows)
+    write_csv(destination / "planned_changes.csv", plan_rows, PLAN_FIELDS)
+    write_jsonl(destination / "planned_changes.jsonl", plan_rows)
+    write_json(destination / "summary.json", summary)
+
+
+def _write_replacement_reports(
+    destination: Path,
+    rows: list[dict],
+    summary: dict,
+) -> None:
+    write_csv(destination / "signature_replace_results.csv", rows, REPLACE_FIELDS)
+    write_jsonl(destination / "signature_replace_results.jsonl", rows)
+    write_json(destination / "summary.json", summary)
+
+
 def replace_signatures(
     input_dir: Path,
     output_dir: Path,
@@ -369,227 +743,39 @@ def replace_signatures(
 
     rows: list[dict] = []
     for source_path in files:
-        relative = source_path.relative_to(source).as_posix()
-        candidate_output = destination / Path(relative)
-        if candidate_output.exists() or candidate_output.is_symlink():
-            rows.append(
-                _replace_row(
-                    relative=relative,
-                    status="SKIPPED_EXISTS",
-                    matched_count=0,
-                    changed_count=0,
-                    old_text=old_text,
-                    new_text=new_text,
-                )
-            )
+        planned = _plan_replacement_candidate(
+            source_path,
+            source,
+            destination,
+            adapter,
+            old_text=old_text,
+            new_text=new_text,
+            layer_name=layer_name,
+        )
+        if dry_run or planned["status"] != "WOULD_REPLACE":
+            rows.append(planned)
             continue
-        try:
-            output_path = _output_file(destination, relative)
-        except ValueError as error:
-            rows.append(
-                _replace_row(
-                    relative=relative,
-                    status="FAILED_REPLACE",
-                    matched_count=0,
-                    changed_count=0,
-                    old_text=old_text,
-                    new_text=new_text,
-                    error_code="OUTPUT_PATH_ESCAPE",
-                    error_message=str(error),
-                )
-            )
-            continue
-
-        try:
-            layers = adapter.inspect_text_layers(source_path)
-        except Exception as error:
-            code, message = _error_details(error, "PHOTOSHOP_OPEN_FAILED")
-            status = "FAILED_OPEN" if code.endswith("OPEN_FAILED") else "FAILED_REPLACE"
-            rows.append(
-                _replace_row(
-                    relative=relative,
-                    status=status,
-                    matched_count=0,
-                    changed_count=0,
-                    old_text=old_text,
-                    new_text=new_text,
-                    error_code=code,
-                    error_message=message,
-                )
-            )
-            continue
-
-        matches = [
-            layer
-            for layer in layers
-            if layer.current_text == old_text
-            and (layer_name is None or layer.layer_name == layer_name)
-        ]
-        if not matches:
-            rows.append(
-                _replace_row(
-                    relative=relative,
-                    status="SKIPPED_NO_MATCH",
-                    matched_count=0,
-                    changed_count=0,
-                    old_text=old_text,
-                    new_text=new_text,
-                )
-            )
-            continue
-        if len(matches) > 1:
-            rows.append(
-                _replace_row(
-                    relative=relative,
-                    status="SKIPPED_AMBIGUOUS",
-                    matched_count=len(matches),
-                    changed_count=0,
-                    old_text=old_text,
-                    new_text=new_text,
-                )
-            )
-            continue
-        if dry_run:
-            rows.append(
-                _replace_row(
-                    relative=relative,
-                    status="WOULD_REPLACE",
-                    matched_count=1,
-                    changed_count=0,
-                    old_text=old_text,
-                    new_text=new_text,
-                )
-            )
-            continue
-
-        output_created_this_run = False
-        try:
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            _output_file(destination, relative)
-            try:
-                output_path.touch(exist_ok=False)
-            except FileExistsError:
-                rows.append(
-                    _replace_row(
-                        relative=relative,
-                        status="SKIPPED_EXISTS",
-                        matched_count=1,
-                        changed_count=0,
-                        old_text=old_text,
-                        new_text=new_text,
-                    )
-                )
-                continue
-            output_created_this_run = True
-            copy2(source_path, output_path)
-            result = adapter.replace_exact_text(
-                output_path,
-                old_text,
-                new_text,
-                layer_name=layer_name,
-            )
-            if result.matched_layer_count != 1 or result.changed_layer_count != 1:
-                cleanup_error = _cleanup_created_output(
-                    output_path,
-                    destination,
-                    relative,
-                )
-                error_code, error_message = _with_cleanup_marker(
-                    "MATCH_CHANGED_BEFORE_SAVE",
-                    "Exact match count changed before output save",
-                    cleanup_error,
-                )
-                rows.append(
-                    _replace_row(
-                        relative=relative,
-                        status="FAILED_REPLACE",
-                        matched_count=result.matched_layer_count,
-                        changed_count=result.changed_layer_count,
-                        old_text=old_text,
-                        new_text=new_text,
-                        error_code=error_code,
-                        error_message=error_message,
-                    )
-                )
-                continue
-        except Exception as error:
-            code, message = _error_details(error, "PHOTOSHOP_REPLACE_FAILED")
-            cleanup_error = ""
-            if output_created_this_run:
-                cleanup_error = _cleanup_created_output(
-                    output_path,
-                    destination,
-                    relative,
-                )
-            code, message = _with_cleanup_marker(code, message, cleanup_error)
-            status = (
-                "FAILED_SAVE"
-                if code.startswith("PHOTOSHOP_SAVE_FAILED")
-                else "FAILED_REPLACE"
-            )
-            rows.append(
-                _replace_row(
-                    relative=relative,
-                    status=status,
-                    matched_count=1,
-                    changed_count=0,
-                    old_text=old_text,
-                    new_text=new_text,
-                    error_code=code,
-                    error_message=message,
-                )
-            )
-            continue
-
         rows.append(
-            _replace_row(
-                relative=relative,
-                status="REPLACED",
-                matched_count=1,
-                changed_count=1,
+            _execute_planned_replacement(
+                source_path,
+                destination,
+                planned["relative_path"],
+                adapter,
                 old_text=old_text,
                 new_text=new_text,
+                layer_name=layer_name,
             )
         )
 
-    status_counts = dict(sorted(Counter(row["status"] for row in rows).items()))
-    summary = {
-        "command": "signature-replace",
-        "dry_run": dry_run,
-        "file_count": len(files),
-        "status_counts": status_counts,
-        "matched_layer_count": sum(row["matched_layer_count"] for row in rows),
-        "changed_layer_count": sum(row["changed_layer_count"] for row in rows),
-        "max_files_reached": truncated,
-    }
+    summary = _replacement_summary(
+        rows,
+        file_count=len(files),
+        truncated=truncated,
+        dry_run=dry_run,
+    )
 
     if dry_run:
-        decisions = {
-            "SKIPPED_NO_MATCH": "SKIP_NO_MATCH",
-            "SKIPPED_AMBIGUOUS": "SKIP_AMBIGUOUS",
-            "SKIPPED_EXISTS": "SKIP_EXISTS",
-            "FAILED_OPEN": "ERROR",
-            "FAILED_REPLACE": "ERROR",
-            "FAILED_SAVE": "ERROR",
-        }
-        plan_rows = [
-            {
-                "relative_path": row["relative_path"],
-                "decision": decisions.get(row["status"], row["status"]),
-                "matched_layer_count": row["matched_layer_count"],
-                "old_text": row["old_text"],
-                "new_text": row["new_text"],
-                "output_relative_path": row["output_relative_path"],
-                "error_code": row["error_code"],
-                "error_message": row["error_message"],
-            }
-            for row in rows
-        ]
-        write_csv(destination / "planned_changes.csv", plan_rows, PLAN_FIELDS)
-        write_jsonl(destination / "planned_changes.jsonl", plan_rows)
-        write_json(destination / "summary.json", summary)
+        _write_plan_reports(destination, rows, summary)
     else:
-        write_csv(destination / "signature_replace_results.csv", rows, REPLACE_FIELDS)
-        write_jsonl(destination / "signature_replace_results.jsonl", rows)
-        write_json(destination / "summary.json", summary)
+        _write_replacement_reports(destination, rows, summary)
     return summary
