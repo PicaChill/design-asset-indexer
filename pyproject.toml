@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "design-asset-indexer"
-version = "0.1.0"
+version = "0.2.0"
 description = "Privacy-first offline indexing for local design-asset archives"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -24,6 +24,7 @@ dependencies = ["Pillow>=10.0,<13"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9", "build>=1.2,<2"]
+photoshop = ["pywin32>=306; sys_platform == 'win32'"]
 
 [project.scripts]
 design-asset-index = "design_asset_indexer.cli:main"
