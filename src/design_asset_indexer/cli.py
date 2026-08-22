@@ -46,7 +46,12 @@ def _parser() -> argparse.ArgumentParser:
     signature_inspect.add_argument("--include", default="*.psd")
     signature_inspect.add_argument("--layer-name")
     signature_inspect.add_argument("--contains-text")
-    signature_inspect.add_argument("--max-files", type=int, default=100)
+    signature_inspect.add_argument(
+        "--max-files",
+        type=int,
+        default=100,
+        help="maximum PSD files to inspect (default: 100)",
+    )
 
     signature_replace = subcommands.add_parser(
         "signature-replace",
@@ -60,7 +65,12 @@ def _parser() -> argparse.ArgumentParser:
     signature_replace.add_argument("--dry-run", action="store_true")
     signature_replace.add_argument("--recursive", action="store_true")
     signature_replace.add_argument("--include", default="*.psd")
-    signature_replace.add_argument("--max-files", type=int, default=100)
+    signature_replace.add_argument(
+        "--max-files",
+        type=int,
+        default=100,
+        help="maximum PSD files to process (default: 100)",
+    )
     return parser
 
 

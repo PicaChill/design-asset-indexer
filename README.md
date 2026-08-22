@@ -171,6 +171,12 @@ design-asset-index signature-replace D:\input-psd --out D:\output-psd --from "�
 
 > ⚠️ 输出目录必须与输入目录完全分离。已有的输出 PSD 会标记为 `SKIPPED_EXISTS`，不会覆盖。
 
+> ⚠️ **`signature-inspect` 和 `signature-replace` 默认每次最多处理 100 个 PSD**；超过时，`summary.json` 中的 `max_files_reached=true`。如需处理更多文件，请显式使用 `--max-files`，例如：
+
+```console
+design-asset-index signature-replace ... --max-files 1000
+```
+
 ### 开发与测试
 
 ```console

@@ -10,6 +10,7 @@ import pytest
 from design_asset_indexer.photoshop import (
     PhotoshopAdapter,
     PhotoshopOpenError,
+    PhotoshopReplaceError,
     PhotoshopSaveError,
     ReplaceResult,
     TextLayerInfo,
@@ -328,6 +329,28 @@ def test_existing_output_is_skipped_without_opening_source(tmp_path: Path) -> No
     assert adapter.replace_calls == []
 
 
+def test_existing_output_content_is_unchanged_in_formal_run(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    output = tmp_path / "output"
+    existing = _make_psd(output, "one.psd", b"EXISTING-DO-NOT-TOUCH")
+    before = existing.read_bytes()
+    adapter = FakeAdapter({"one.psd": [_layer("Signature", "OLD")]})
+
+    summary = replace_signatures(
+        source,
+        output,
+        adapter,
+        old_text="OLD",
+        new_text="NEW",
+    )
+
+    assert summary["status_counts"] == {"SKIPPED_EXISTS": 1}
+    assert existing.read_bytes() == before
+    assert adapter.inspect_calls == []
+    assert adapter.replace_calls == []
+
+
 @pytest.mark.parametrize("layout", ["same", "output_inside", "input_inside"])
 def test_overlapping_roots_are_rejected_before_writes(tmp_path: Path, layout: str) -> None:
     if layout == "same":
@@ -425,6 +448,124 @@ def test_save_failure_is_reported_and_batch_continues(tmp_path: Path) -> None:
     rows = _read_jsonl(tmp_path / "output" / "signature_replace_results.jsonl")
     assert rows[0]["error_code"] == "PHOTOSHOP_SAVE_FAILED"
     assert rows[1]["status"] == "REPLACED"
+    assert not (tmp_path / "output" / "a.psd").exists()
+    assert (tmp_path / "output" / "b.psd").is_file()
+
+
+def test_match_changed_before_save_removes_created_output(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    original = _make_psd(source, "one.psd", b"ORIGINAL")
+    adapter = FakeAdapter(
+        {"one.psd": [_layer("Signature", "OLD")]},
+        replace_results={"one.psd": ReplaceResult(2, 0)},
+    )
+    output = tmp_path / "output"
+
+    summary = replace_signatures(
+        source,
+        output,
+        adapter,
+        old_text="OLD",
+        new_text="NEW",
+    )
+
+    assert summary["status_counts"] == {"FAILED_REPLACE": 1}
+    assert not (output / "one.psd").exists()
+    assert original.is_file()
+    row = _read_jsonl(output / "signature_replace_results.jsonl")[0]
+    assert row["error_code"] == "MATCH_CHANGED_BEFORE_SAVE"
+
+
+def test_replace_exception_removes_created_output(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    original = _make_psd(source, "one.psd", b"ORIGINAL")
+    adapter = FakeAdapter(
+        {"one.psd": [_layer("Signature", "OLD")]},
+        replace_results={
+            "one.psd": PhotoshopReplaceError("Photoshop text replacement failed")
+        },
+    )
+    output = tmp_path / "output"
+
+    summary = replace_signatures(
+        source,
+        output,
+        adapter,
+        old_text="OLD",
+        new_text="NEW",
+    )
+
+    assert summary["status_counts"] == {"FAILED_REPLACE": 1}
+    assert not (output / "one.psd").exists()
+    assert original.read_bytes().endswith(b"ORIGINAL")
+    row = _read_jsonl(output / "signature_replace_results.jsonl")[0]
+    assert row["error_code"] == "PHOTOSHOP_REPLACE_FAILED"
+
+
+def test_cleanup_failure_keeps_original_error_and_adds_safe_marker(tmp_path: Path) -> None:
+    class CleanupFailingAdapter(FakeAdapter):
+        def replace_exact_text(
+            self,
+            path: Path,
+            old_text: str,
+            new_text: str,
+            layer_name: str | None = None,
+        ) -> ReplaceResult:
+            path.unlink()
+            path.mkdir()
+            raise PhotoshopReplaceError("Photoshop text replacement failed")
+
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    output = tmp_path / "output"
+    adapter = CleanupFailingAdapter(
+        {"one.psd": [_layer("Signature", "OLD")]}
+    )
+
+    replace_signatures(
+        source,
+        output,
+        adapter,
+        old_text="OLD",
+        new_text="NEW",
+    )
+
+    row = _read_jsonl(output / "signature_replace_results.jsonl")[0]
+    assert row["status"] == "FAILED_REPLACE"
+    assert row["error_code"] == (
+        "PHOTOSHOP_REPLACE_FAILED;OUTPUT_CLEANUP_FAILED"
+    )
+    assert row["error_message"] == (
+        "Photoshop text replacement failed; output cleanup failed"
+    )
+
+
+def test_replace_summary_reports_limit_reached(tmp_path: Path) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "a.psd")
+    _make_psd(source, "b.psd")
+    adapter = FakeAdapter(
+        {
+            "a.psd": [_layer("Signature", "OLD")],
+            "b.psd": [_layer("Signature", "OLD")],
+        }
+    )
+    output = tmp_path / "output"
+
+    summary = replace_signatures(
+        source,
+        output,
+        adapter,
+        old_text="OLD",
+        new_text="NEW",
+        dry_run=True,
+        max_files=1,
+    )
+
+    assert summary["file_count"] == 1
+    assert summary["max_files_reached"] is True
+    written = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+    assert written["max_files_reached"] is True
 
 
 def test_non_psd_magic_is_not_sent_to_photoshop(tmp_path: Path) -> None:

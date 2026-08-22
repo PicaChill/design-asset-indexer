@@ -148,3 +148,37 @@ def test_signature_replace_cli_rejects_empty_replacement(
 
     assert result == 2
     assert "replacement text must not be empty" in captured.err
+
+
+def test_signature_replace_cli_reports_max_files_reached(
+    tmp_path: Path,
+    monkeypatch,
+    capsys,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source / "a.psd")
+    _make_psd(source / "b.psd")
+    output = tmp_path / "output"
+    monkeypatch.setattr(cli, "PhotoshopAdapter", AvailableAdapter)
+
+    result = cli.main(
+        [
+            "signature-replace",
+            str(source),
+            "--out",
+            str(output),
+            "--from",
+            "OLD",
+            "--to",
+            "NEW",
+            "--dry-run",
+            "--max-files",
+            "1",
+        ]
+    )
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert json.loads(captured.out)["max_files_reached"] is True
+    summary = json.loads((output / "summary.json").read_text(encoding="utf-8"))
+    assert summary["max_files_reached"] is True

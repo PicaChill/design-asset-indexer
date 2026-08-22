@@ -313,6 +313,35 @@ def _output_file(destination: Path, relative: str) -> Path:
     return candidate
 
 
+def _cleanup_created_output(
+    output_path: Path,
+    destination: Path,
+    relative: str,
+) -> str:
+    """Remove only a failed output file that this invocation created."""
+
+    try:
+        safe_output = _output_file(destination, relative)
+        if safe_output != output_path:
+            raise ValueError("output cleanup path changed")
+        safe_output.unlink(missing_ok=True)
+    except Exception:
+        return "OUTPUT_CLEANUP_FAILED"
+    return ""
+
+
+def _with_cleanup_marker(
+    error_code: str,
+    error_message: str,
+    cleanup_error: str,
+) -> tuple[str, str]:
+    if not cleanup_error:
+        return error_code, error_message
+    code = f"{error_code};{cleanup_error}" if error_code else cleanup_error
+    message = f"{error_message}; output cleanup failed"
+    return code, message
+
+
 def replace_signatures(
     input_dir: Path,
     output_dir: Path,
@@ -341,6 +370,19 @@ def replace_signatures(
     rows: list[dict] = []
     for source_path in files:
         relative = source_path.relative_to(source).as_posix()
+        candidate_output = destination / Path(relative)
+        if candidate_output.exists() or candidate_output.is_symlink():
+            rows.append(
+                _replace_row(
+                    relative=relative,
+                    status="SKIPPED_EXISTS",
+                    matched_count=0,
+                    changed_count=0,
+                    old_text=old_text,
+                    new_text=new_text,
+                )
+            )
+            continue
         try:
             output_path = _output_file(destination, relative)
         except ValueError as error:
@@ -354,19 +396,6 @@ def replace_signatures(
                     new_text=new_text,
                     error_code="OUTPUT_PATH_ESCAPE",
                     error_message=str(error),
-                )
-            )
-            continue
-
-        if output_path.exists():
-            rows.append(
-                _replace_row(
-                    relative=relative,
-                    status="SKIPPED_EXISTS",
-                    matched_count=0,
-                    changed_count=0,
-                    old_text=old_text,
-                    new_text=new_text,
                 )
             )
             continue
@@ -433,9 +462,25 @@ def replace_signatures(
             )
             continue
 
+        output_created_this_run = False
         try:
             output_path.parent.mkdir(parents=True, exist_ok=True)
             _output_file(destination, relative)
+            try:
+                output_path.touch(exist_ok=False)
+            except FileExistsError:
+                rows.append(
+                    _replace_row(
+                        relative=relative,
+                        status="SKIPPED_EXISTS",
+                        matched_count=1,
+                        changed_count=0,
+                        old_text=old_text,
+                        new_text=new_text,
+                    )
+                )
+                continue
+            output_created_this_run = True
             copy2(source_path, output_path)
             result = adapter.replace_exact_text(
                 output_path,
@@ -444,6 +489,16 @@ def replace_signatures(
                 layer_name=layer_name,
             )
             if result.matched_layer_count != 1 or result.changed_layer_count != 1:
+                cleanup_error = _cleanup_created_output(
+                    output_path,
+                    destination,
+                    relative,
+                )
+                error_code, error_message = _with_cleanup_marker(
+                    "MATCH_CHANGED_BEFORE_SAVE",
+                    "Exact match count changed before output save",
+                    cleanup_error,
+                )
                 rows.append(
                     _replace_row(
                         relative=relative,
@@ -452,14 +507,26 @@ def replace_signatures(
                         changed_count=result.changed_layer_count,
                         old_text=old_text,
                         new_text=new_text,
-                        error_code="MATCH_CHANGED_BEFORE_SAVE",
-                        error_message="Exact match count changed before output save",
+                        error_code=error_code,
+                        error_message=error_message,
                     )
                 )
                 continue
         except Exception as error:
             code, message = _error_details(error, "PHOTOSHOP_REPLACE_FAILED")
-            status = "FAILED_SAVE" if code.endswith("SAVE_FAILED") else "FAILED_REPLACE"
+            cleanup_error = ""
+            if output_created_this_run:
+                cleanup_error = _cleanup_created_output(
+                    output_path,
+                    destination,
+                    relative,
+                )
+            code, message = _with_cleanup_marker(code, message, cleanup_error)
+            status = (
+                "FAILED_SAVE"
+                if code.startswith("PHOTOSHOP_SAVE_FAILED")
+                else "FAILED_REPLACE"
+            )
             rows.append(
                 _replace_row(
                     relative=relative,
