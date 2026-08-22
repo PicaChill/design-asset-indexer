@@ -43,22 +43,28 @@ https://github.com/PicaChill/design-asset-indexer
 
 当前正式版本是 v0.2.0。
 
+请优先使用正式的 v0.2.0 Release wheel，不要自动改用 main 开发版。
+
 请先检查：
 1. Windows 是否正常
 2. Python 3.11 或更新版本是否已安装
 3. Adobe Photoshop 是否已安装并能正常启动
+4. 输入目录的顶层和子目录中是否存在 PSD；先判断后续是否需要 --recursive
 
 然后帮助我完成安装和使用，但必须遵守：
 
 1. 使用独立 Python 虚拟环境，不修改我的全局 Python 环境
 2. 不覆盖任何原始 PSD
 3. 输入目录和输出目录必须分开
-4. 先运行 signature-inspect
-5. 再运行 signature-replace --dry-run，只预演不真正修改
-6. 把 planned_changes.csv 的结果用中文解释给我
-7. 未经我明确确认，不得执行正式 signature-replace
-8. 如果同一个 PSD 有多个相同文字，不要猜，先告诉我
-9. 如果发现我的署名是栅格化或 Smart Object 内文字，告诉我当前版本不支持，不要自行尝试破坏性修改
+4. 如果需要递归，signature-inspect、signature-replace --dry-run 和正式 signature-replace 必须始终使用相同的 --recursive
+5. 先运行 signature-inspect，并检查它的 summary.json 中的 max_files_reached
+6. 再运行 signature-replace --dry-run，只预演不真正修改，并再次检查 summary.json 中的 max_files_reached
+7. 如果任一步的 max_files_reached=true，不得声称“全部处理完成”；先告诉我默认最多处理了 100 个，并询问我是否要提高 --max-files
+8. 把 planned_changes.csv 的结果用中文解释给我
+9. 正式执行必须与我已确认的 dry-run 使用完全相同的 input、output、--from、--to、--recursive、--layer-name、--include、--max-files；唯一允许的变化是去掉 --dry-run
+10. 未经我明确确认，不得执行正式 signature-replace
+11. 如果同一个 PSD 有多个相同文字，不要猜，先告诉我
+12. 如果发现我的署名是栅格化或 Smart Object 内文字，告诉我当前版本不支持，不要自行尝试破坏性修改
 
 我的输入文件夹：
 <填写路径>
@@ -248,7 +254,7 @@ D:\表情包_已改署名\planned_changes.csv
   --to "新署名"
 ```
 
-如果预演时用了 `--recursive`、`--layer-name`、`--include` 或 `--max-files`，正式执行时也要保持相同参数。
+正式执行的 input、output、`--from`、`--to`、`--recursive`、`--layer-name`、`--include`、`--max-files` 必须与已确认的 dry-run 完全相同，唯一允许的变化是去掉 `--dry-run`。未使用的可选参数也不要在正式执行时临时新增。
 
 - 修改后的 PSD：在 `D:\表情包_已改署名`，并保持原来的相对子目录结构。
 - 原始 PSD：仍在 `D:\表情包_原始`，程序不会保存覆盖它们。
@@ -274,11 +280,33 @@ D:\表情包_已改署名\planned_changes.csv
 | `planned_changes.csv` | dry-run | `decision`、`matched_layer_count`、`error_code` |
 | `signature_replace_results.csv` | 正式执行 | `status`、`changed_layer_count`、`error_code` |
 
-JSON / JSONL 和 `summary.json` 主要给程序或高级排错使用。`summary.json` 中：
+JSON / JSONL 和 `summary.json` 主要给程序或高级排错使用。不同命令的 `summary.json` 字段不同。
 
-- `max_files_reached=true`：候选超过本次安全上限，仍有文件未处理。
-- `changed_layer_count`：本次实际修改的图层总数。
-- `status_counts`：各结果状态的数量。
+### `signature-inspect` 的 `summary.json`
+
+常用字段：
+
+- `file_count`
+- `document_opened_count`
+- `layer_count`
+- `matched_layer_count`
+- `error_count`
+- `max_files_reached`
+
+### `signature-replace` / dry-run 的 `summary.json`
+
+常用字段：
+
+- `file_count`
+- `status_counts`
+- `matched_layer_count`
+- `changed_layer_count`
+- `max_files_reached`
+- `dry_run`
+
+`max_files_reached=true` 表示候选超过本次安全上限，仍有文件未处理，**不能声称已经全部处理完成**。
+
+> `planned_changes.csv` 的 `decision` 才使用 `WOULD_REPLACE`、`SKIP_NO_MATCH`、`SKIP_AMBIGUOUS`、`SKIP_EXISTS`、`ERROR`。不要把这些值当作 inspect summary 字段。
 
 > ⚠️ CSV / JSON / JSONL 可能包含私人文件名和署名文字，不要未经检查直接公开上传。
 
@@ -355,7 +383,7 @@ py -0p
 
 ### 中文路径和中文文字可以用吗？
 
-项目测试覆盖中文路径 / 文字，并完成过真实 PSD 私有验收；但不同 Photoshop 版本、字体和复杂 PSD 仍可能有差异。所有路径都用双引号，先 inspect、再 dry-run，不要跳过预演。
+集成测试覆盖中文文字；项目也在中文路径下完成过真实 PSD 私有验收。不同 Photoshop 版本、字体和复杂 PSD 仍可能有差异，因此仍应先 inspect、再 dry-run。所有路径示例都使用双引号，但这不代表对所有中文路径作绝对兼容承诺。
 
 ### 输出目录已经有同名 PSD 怎么办？
 
