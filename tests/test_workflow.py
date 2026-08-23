@@ -275,6 +275,8 @@ def test_output_created_after_dry_run_blocks_execution(tmp_path: Path) -> None:
     assert result.stale is True
     assert result.processed_count == 0
     assert result.workflow_status == "EXECUTION_STOPPED_PLAN_STALE"
+    assert result.reports_written is False
+    assert build_public_diagnostic(result)["reports_written"] is False
     assert adapter.replace_calls == []
     assert appeared.read_bytes() == before
     assert not (output / "signature_replace_results.csv").exists()
@@ -384,9 +386,58 @@ def test_execute_plan_creates_only_confirmed_outputs(tmp_path: Path) -> None:
     result = execute_signature_plan(plan, adapter)
 
     assert result.complete is True
+    assert result.reports_written is True
+    assert build_public_diagnostic(result)["reports_written"] is True
     assert (output / "replace.psd").is_file()
     assert not (output / "skip.psd").exists()
     assert [item.status for item in result.items] == ["REPLACED", "SKIPPED_NO_MATCH"]
+
+
+def test_report_write_failure_does_not_return_execution_result(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "input"
+    _make_psd(source, "one.psd")
+    output = tmp_path / "output"
+    adapter = _matching_adapter("one.psd")
+    plan = create_signature_execution_plan(_options(source, output), _rule(), adapter)
+
+    def fail_report_write(*_args, **_kwargs) -> None:
+        raise OSError("simulated report write failure")
+
+    monkeypatch.setattr(
+        workflow_module,
+        "_write_replacement_reports",
+        fail_report_write,
+    )
+
+    with pytest.raises(OSError, match="simulated report write failure"):
+        execute_signature_plan(plan, adapter)
+
+
+def test_execution_public_diagnostic_reports_provenance_without_private_data(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "private-input"
+    _make_psd(source, "private-name.psd")
+    output = tmp_path / "private-output"
+    rule = SignatureRule("PRIVATE_OLD_TEXT", "PRIVATE_NEW_TEXT", "PRIVATE_LAYER")
+    adapter = FakeAdapter(
+        {"private-name.psd": [_layer("PRIVATE_LAYER", "PRIVATE_OLD_TEXT")]}
+    )
+    plan = create_signature_execution_plan(_options(source, output), rule, adapter)
+
+    result = execute_signature_plan(plan, adapter)
+    diagnostic = build_public_diagnostic(result)
+    serialized = json.dumps(diagnostic, ensure_ascii=False)
+
+    assert diagnostic["reports_written"] is True
+    assert str(tmp_path) not in serialized
+    assert "private-name.psd" not in serialized
+    assert "PRIVATE_OLD_TEXT" not in serialized
+    assert "PRIVATE_NEW_TEXT" not in serialized
+    assert "PRIVATE_LAYER" not in serialized
 
 
 def test_midrun_source_change_stops_before_next_mutation(tmp_path: Path) -> None:
@@ -486,6 +537,7 @@ def test_cancel_before_start_creates_no_outputs(tmp_path: Path) -> None:
     assert result.cancelled is True
     assert result.processed_count == 0
     assert result.remaining_count == 1
+    assert result.reports_written is True
     assert not (output / "one.psd").exists()
     assert adapter.replace_calls == []
 
@@ -1034,6 +1086,7 @@ def test_parent_symlink_created_after_plan_blocks_all_mutation(
 
     assert result.stale is True
     assert result.processed_count == 0
+    assert result.reports_written is False
     assert adapter.replace_calls == []
     assert not (output / "a.psd").exists()
     assert not (outside / "b.psd").exists()
@@ -1064,6 +1117,7 @@ def test_later_item_parent_escape_blocks_first_item_mutation(
 
     assert result.stale is True
     assert result.processed_count == 0
+    assert result.reports_written is False
     assert adapter.replace_calls == []
     assert not (output / "a.psd").exists()
 
@@ -1132,6 +1186,7 @@ def test_event_sink_creates_output_before_mutation_stops_stale(
 
     assert result.stale is True
     assert result.processed_count == 0
+    assert result.reports_written is True
     assert adapter.replace_calls == []
     assert (output / "one.psd").read_bytes().endswith(external)
 
@@ -1154,6 +1209,7 @@ def test_event_sink_changes_source_before_mutation_stops_stale(
 
     assert result.stale is True
     assert result.processed_count == 0
+    assert result.reports_written is True
     assert adapter.replace_calls == []
 
 

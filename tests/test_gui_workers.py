@@ -116,10 +116,14 @@ def test_every_workflow_phase_owns_com_and_adapter_in_one_qthread(
         com_runtime_factory=Runtime,
     )
     completed = QSignalSpy(job.completed)
+    failed = QSignalSpy(job.failed)
     finished = QSignalSpy(job.finished)
     job.start()
     _wait(job, finished, qapp)
+    assert job.wait()
     assert completed.count() == 1
+    assert failed.count() == 0
+    assert finished.count() == 1
     names = [name for name, _ in log]
     assert names == [
         "coinitialize",
@@ -159,10 +163,13 @@ def test_environment_check_uses_same_worker_thread(qapp, tmp_path):
         com_runtime_factory=Runtime,
     )
     ready = QSignalSpy(job.environment_ready)
+    failed = QSignalSpy(job.failed)
     finished = QSignalSpy(job.finished)
     job.start()
     _wait(job, finished, qapp)
     assert ready.count() == 1
+    assert failed.count() == 0
+    assert finished.count() == 1
     assert len({thread_id for _, thread_id in log}) == 1
     assert [name for name, _ in log] == ["init", "available", "version", "uninit"]
 
@@ -214,3 +221,100 @@ def test_cancel_is_cooperative_and_never_uses_qthread_terminate(
     _wait(job, finished, qapp)
     assert request.cancellation_token.cancelled
     assert ".terminate(" not in inspect.getsource(worker_module)
+
+
+def test_cleanup_failure_replaces_success_with_one_failed(qapp, tmp_path, monkeypatch):
+    class Runtime:
+        def CoInitialize(self):
+            pass
+
+        def CoUninitialize(self):
+            raise RuntimeError(r"D:\private\cleanup-detail")
+
+    monkeypatch.setattr(worker_module, "inspect_signature_workflow", lambda *a, **k: object())
+    job = RunningJob(
+        _request(WorkerOperation.INSPECT, tmp_path),
+        adapter_factory=object,
+        com_runtime_factory=Runtime,
+    )
+    completed = QSignalSpy(job.completed)
+    failed = QSignalSpy(job.failed)
+    finished = QSignalSpy(job.finished)
+    job.start()
+    _wait(job, finished, qapp)
+    assert completed.count() == 0
+    assert failed.count() == 1
+    assert finished.count() == 1
+    payload = " ".join(str(value) for value in failed.at(0))
+    assert "COM_CLEANUP_FAILED" in payload
+    assert "private" not in payload
+
+
+def test_operation_and_cleanup_failure_emit_one_redacted_failed(
+    qapp, tmp_path, monkeypatch
+):
+    class Runtime:
+        def CoInitialize(self):
+            pass
+
+        def CoUninitialize(self):
+            raise RuntimeError("cleanup secret")
+
+    def fail_operation(*args, **kwargs):
+        raise ValueError(r"D:\private\source.psd OLD_SIGNATURE")
+
+    monkeypatch.setattr(worker_module, "inspect_signature_workflow", fail_operation)
+    job = RunningJob(
+        _request(WorkerOperation.INSPECT, tmp_path),
+        adapter_factory=object,
+        com_runtime_factory=Runtime,
+    )
+    completed = QSignalSpy(job.completed)
+    failed = QSignalSpy(job.failed)
+    finished = QSignalSpy(job.finished)
+    job.start()
+    _wait(job, finished, qapp)
+    assert completed.count() == 0
+    assert failed.count() == 1
+    assert finished.count() == 1
+    payload = " ".join(str(value) for value in failed.at(0))
+    assert "VALUEERROR_COM_CLEANUP_FAILED" in payload
+    assert "private" not in payload
+    assert "OLD_SIGNATURE" not in payload
+
+
+def test_environment_cleanup_failure_never_emits_available_success(qapp, tmp_path):
+    class Runtime:
+        def CoInitialize(self):
+            pass
+
+        def CoUninitialize(self):
+            raise RuntimeError("cleanup failed")
+
+    class Adapter:
+        def is_available(self):
+            return True
+
+        @property
+        def version(self):
+            return "SYNTHETIC"
+
+    job = RunningJob(
+        _request(WorkerOperation.ENVIRONMENT, tmp_path),
+        adapter_factory=Adapter,
+        com_runtime_factory=Runtime,
+    )
+    ready = QSignalSpy(job.environment_ready)
+    failed = QSignalSpy(job.failed)
+    finished = QSignalSpy(job.finished)
+    job.start()
+    _wait(job, finished, qapp)
+    assert ready.count() == 0
+    assert failed.count() == 1
+    assert finished.count() == 1
+
+
+def test_worker_has_no_global_gc_collect_dependency():
+    source = inspect.getsource(worker_module)
+    assert "gc.collect" not in source
+    assert "import gc" not in source

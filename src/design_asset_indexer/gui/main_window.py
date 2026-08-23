@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .. import __version__
 from ..workflow import build_public_diagnostic
 from ..workflow_models import (
     ExecutionRunResult,
@@ -41,6 +42,8 @@ from ..workflow_models import (
     PlanRunResult,
     SignatureRule,
     WorkflowEvent,
+    WorkflowEventKind,
+    WorkflowPhase,
 )
 from .controller import GuiState, WorkflowController
 from .models import (
@@ -99,6 +102,7 @@ class MainWindow(QMainWindow):
         self.controller = controller or WorkflowController(parent=self)
         self._allow_close = False
         self._close_when_finished = False
+        self._execute_status_counts = {"success": 0, "skipped": 0, "failed": 0}
 
         root = QWidget()
         root.setObjectName("Root")
@@ -132,14 +136,23 @@ class MainWindow(QMainWindow):
         bar.setObjectName("TopBar")
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(18, 12, 18, 12)
+        identity = QVBoxLayout()
+        identity.setSpacing(2)
         title = QLabel("🖊️ 表情包 PSD 批量署名替换")
         title.setObjectName("Title")
+        subtitle = QLabel("本地离线 · 原 PSD 只读 · 输出副本隔离")
+        subtitle.setObjectName("Muted")
+        identity.addWidget(title)
+        identity.addWidget(subtitle)
+        self.workflow_pill = QLabel(f"v{__version__} · 5 步安全工作流")
+        self.workflow_pill.setObjectName("Pill")
         self.photoshop_pill = QLabel("Photoshop：正在检查")
         self.photoshop_pill.setObjectName("WarningText")
         self.help_button = QPushButton("使用说明")
         self.help_button.clicked.connect(self._open_help)
-        layout.addWidget(title)
+        layout.addLayout(identity)
         layout.addStretch(1)
+        layout.addWidget(self.workflow_pill)
         layout.addWidget(self.photoshop_pill)
         layout.addWidget(self.help_button)
         return bar
@@ -190,20 +203,24 @@ class MainWindow(QMainWindow):
         )
         layout.addWidget(self.setup_banner)
 
-        form_group = QGroupBox("目录与范围")
+        form_group = QGroupBox("输入与输出")
         form = QFormLayout(form_group)
         self.input_picker = PathPicker("例如 D:\\素材", "选择 PSD 输入目录")
         self.output_picker = PathPicker("例如 D:\\署名替换输出", "选择独立输出目录")
+        form.addRow("输入目录", self.input_picker)
+        form.addRow("输出目录", self.output_picker)
+        layout.addWidget(form_group)
+
+        scope_group = QGroupBox("文件范围")
+        scope_form = QFormLayout(scope_group)
         self.recursive_check = QCheckBox("递归检查子目录")
         self.max_files_spin = QSpinBox()
         self.max_files_spin.setRange(1, 100000)
         self.max_files_spin.setValue(100)
         self.max_files_spin.setSuffix(" 个 PSD")
-        form.addRow("输入目录", self.input_picker)
-        form.addRow("输出目录", self.output_picker)
-        form.addRow("扫描方式", self.recursive_check)
-        form.addRow("安全上限", self.max_files_spin)
-        layout.addWidget(form_group)
+        scope_form.addRow("扫描方式", self.recursive_check)
+        scope_form.addRow("安全上限", self.max_files_spin)
+        layout.addWidget(scope_group)
 
         advanced = QGroupBox("高级设置")
         advanced.setCheckable(True)
@@ -223,7 +240,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.setup_error)
         actions = QHBoxLayout()
         actions.addStretch(1)
-        self.inspect_button = QPushButton("检查 Photoshop 和文字图层")
+        self.inspect_button = QPushButton("检查 PSD")
         self.inspect_button.setObjectName("PrimaryButton")
         self.inspect_button.clicked.connect(self._start_inspect)
         actions.addWidget(self.inspect_button)
@@ -276,6 +293,7 @@ class MainWindow(QMainWindow):
         self.exact_layer_radio = QRadioButton("同时限定所选图层名（更安全）")
         self.any_layer_radio = QRadioButton("只按文字完全匹配")
         self.any_layer_radio.setChecked(True)
+        self.exact_layer_radio.setEnabled(False)
         self.selected_layer_name = ""
         rule.addWidget(QLabel("当前文字"), 0, 0)
         rule.addWidget(self.from_edit, 0, 1, 1, 2)
@@ -283,6 +301,11 @@ class MainWindow(QMainWindow):
         rule.addWidget(self.to_edit, 1, 1, 1, 2)
         rule.addWidget(self.exact_layer_radio, 2, 1)
         rule.addWidget(self.any_layer_radio, 2, 2)
+        self.layer_scope_label = QLabel("不限图层名")
+        self.layer_scope_label.setObjectName("LayerScope")
+        self.layer_scope_label.setWordWrap(True)
+        self.layer_scope_label.setToolTip("不限图层名")
+        rule.addWidget(self.layer_scope_label, 3, 1, 1, 2)
         layout.addWidget(rule_group)
         self.role_warning = Banner()
         layout.addWidget(self.role_warning)
@@ -307,6 +330,7 @@ class MainWindow(QMainWindow):
         self.from_edit.textChanged.connect(self._rule_changed)
         self.to_edit.textChanged.connect(self._rule_changed)
         self.exact_layer_radio.toggled.connect(self._rule_changed)
+        self.exact_layer_radio.toggled.connect(self._update_layer_scope_display)
         return page
 
     def _build_plan_page(self) -> QWidget:
@@ -335,6 +359,8 @@ class MainWindow(QMainWindow):
         self.plan_id_label = QLabel("计划编号：—")
         self.plan_id_label.setObjectName("Muted")
         layout.addWidget(self.plan_id_label)
+        self.review_layer_scope = Banner("当前限定：不限图层名", "info")
+        layout.addWidget(self.review_layer_scope)
         self.plan_model = PlanTableModel()
         self.plan_table = _table()
         self.plan_table.setModel(self.plan_model)
@@ -359,7 +385,7 @@ class MainWindow(QMainWindow):
         buttons = QHBoxLayout()
         back = QPushButton("返回调整条件")
         back.clicked.connect(lambda: self._set_step(1))
-        self.execute_button = QPushButton("正式执行已确认计划")
+        self.execute_button = QPushButton("确认并正式执行")
         self.execute_button.setObjectName("PrimaryButton")
         self.execute_button.setAutoDefault(False)
         self.execute_button.setDefault(False)
@@ -385,6 +411,18 @@ class MainWindow(QMainWindow):
             "warning",
         )
         layout.addWidget(self.execute_banner)
+        self.execute_current_file = QLabel("当前文件：—")
+        self.execute_current_file.setObjectName("LayerScope")
+        layout.addWidget(self.execute_current_file)
+        execute_cards = QHBoxLayout()
+        self.execute_cards = {
+            "success": StatusCard("成功", "SUCCESS"),
+            "skipped": StatusCard("跳过", "WARNING"),
+            "failed": StatusCard("失败", "ERROR"),
+        }
+        for card in self.execute_cards.values():
+            execute_cards.addWidget(card)
+        layout.addLayout(execute_cards)
         self.execute_progress = QProgressBar()
         self.execute_progress.setRange(0, 1)
         self.execute_progress.setValue(0)
@@ -437,6 +475,7 @@ class MainWindow(QMainWindow):
         self.open_output_button.clicked.connect(self._open_output)
         self.open_report_button = QPushButton("打开 summary.json")
         self.open_report_button.clicked.connect(self._open_summary)
+        self.open_report_button.setEnabled(False)
         self.copy_diagnostic_button = QPushButton("复制安全诊断")
         self.copy_diagnostic_button.clicked.connect(self._copy_diagnostic)
         new_task = QPushButton("新任务")
@@ -459,7 +498,10 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(14, 8, 14, 8)
         self.job_label = QLabel("就绪")
-        self.job_label.setObjectName("Muted")
+        self.job_label.setObjectName("JobTitle")
+        self.job_context_label = QLabel("尚未开始")
+        self.job_context_label.setObjectName("Muted")
+        self.job_context_label.setMinimumWidth(220)
         self.job_progress = QProgressBar()
         self.job_progress.setMaximumWidth(260)
         self.job_progress.setRange(0, 1)
@@ -468,7 +510,7 @@ class MainWindow(QMainWindow):
         self.job_cancel.setObjectName("DangerButton")
         self.job_cancel.clicked.connect(self._request_cancel)
         layout.addWidget(self.job_label)
-        layout.addStretch(1)
+        layout.addWidget(self.job_context_label, 1)
         layout.addWidget(self.job_progress)
         layout.addWidget(self.job_cancel)
         return bar
@@ -499,6 +541,7 @@ class MainWindow(QMainWindow):
     def _setup_changed(self, *_args) -> None:
         if not self.controller.busy:
             self.controller.invalidate_setup()
+            self._refresh_report_action()
             if not self.input_picker.path and not self.output_picker.path:
                 self.setup_error.set_message("")
                 return
@@ -519,6 +562,35 @@ class MainWindow(QMainWindow):
         if not self.controller.busy:
             self.controller.invalidate_rule()
             self.inspect_rule_error.set_message("")
+            self._refresh_report_action()
+
+    def _update_layer_scope_display(self, *_args) -> None:
+        if self.exact_layer_radio.isChecked() and self.selected_layer_name:
+            text = f"仅限图层名：{self.selected_layer_name}"
+        else:
+            text = "不限图层名"
+        self.layer_scope_label.setText(text)
+        self.layer_scope_label.setToolTip(text)
+
+    def _reset_layer_selection(self) -> None:
+        self.selected_layer_name = ""
+        self.exact_layer_radio.blockSignals(True)
+        self.any_layer_radio.blockSignals(True)
+        self.exact_layer_radio.setChecked(False)
+        self.any_layer_radio.setChecked(True)
+        self.exact_layer_radio.setEnabled(False)
+        self.exact_layer_radio.blockSignals(False)
+        self.any_layer_radio.blockSignals(False)
+        self.role_warning.set_message("")
+        self._update_layer_scope_display()
+
+    def _update_plan_enabled(self) -> None:
+        result = self.controller.inspect_result
+        self.plan_button.setEnabled(
+            not self.controller.busy
+            and result is not None
+            and result.planned_items_complete
+        )
 
     def _start_inspect(self) -> None:
         try:
@@ -529,6 +601,7 @@ class MainWindow(QMainWindow):
                 include=self.include_edit.text(),
                 max_files=self.max_files_spin.value(),
             )
+            self._reset_layer_selection()
             self.controller.start_inspect(options)
         except (ValueError, RuntimeError) as error:
             self.setup_error.set_message(str(error), "error")
@@ -537,8 +610,11 @@ class MainWindow(QMainWindow):
         source_index = self.inspect_proxy.mapToSource(proxy_index)
         row = source_index.row()
         item = self.inspect_model.item_at(row)
+        previous_layer_name = self.selected_layer_name
         self.inspect_model.set_selected_row(row)
         self.selected_layer_name = item.layer_name
+        if previous_layer_name != self.selected_layer_name and not self.controller.busy:
+            self.controller.invalidate_rule()
         self.from_edit.setText(item.current_text)
         self.exact_layer_radio.setEnabled(bool(item.layer_name))
         if not item.layer_name:
@@ -556,6 +632,7 @@ class MainWindow(QMainWindow):
             )
         else:
             self.role_warning.set_message("")
+        self._update_layer_scope_display()
 
     def _start_plan(self) -> None:
         try:
@@ -574,9 +651,18 @@ class MainWindow(QMainWindow):
             self.inspect_rule_error.set_message(str(error), "error")
 
     def show_inspect_result(self, result: InspectRunResult) -> None:
+        self._reset_layer_selection()
         self.inspect_model.set_items(result.items)
         if result.cancelled:
-            message, kind = "检查已取消；未检查项不能视为完成。", "warning"
+            message, kind = (
+                "检查未完成，不能基于半份检查结果生成正式预演；请重新检查。",
+                "warning",
+            )
+        elif result.stale or not result.planned_items_complete:
+            message, kind = (
+                "检查结果已失效或不完整，不能生成正式预演；请重新检查。",
+                "error",
+            )
         elif result.max_files_reached or result.unplanned_count:
             message, kind = (
                 f"⚠️ 只检查了安全上限内的 {result.selected_count} 个；"
@@ -589,6 +675,7 @@ class MainWindow(QMainWindow):
                 "success",
             )
         self.inspect_summary.set_message(message, kind)
+        self._update_plan_enabled()
         self._set_step(1)
 
     def show_plan_result(self, result: PlanRunResult) -> None:
@@ -598,8 +685,13 @@ class MainWindow(QMainWindow):
             card.set_value(counts.get(key, 0))
         if result.plan is not None:
             self.plan_id_label.setText(f"预演编号：{result.plan.plan_id[:8].upper()}")
+            layer_name = result.plan.rule.layer_name
+            scope = f"当前限定：仅限图层名：{layer_name}" if layer_name else "当前限定：不限图层名"
+            self.review_layer_scope.set_message(scope, "info")
+            self.review_layer_scope.label.setToolTip(scope)
         else:
             self.plan_id_label.setText("计划编号：未生成")
+            self.review_layer_scope.set_message("当前限定：计划未生成", "warning")
         partial = result.partial_plan
         self.partial_confirm.setVisible(partial)
         self.partial_confirm.setChecked(False)
@@ -618,6 +710,7 @@ class MainWindow(QMainWindow):
         else:
             message, kind = "✅ dry-run 完成。请逐项确认后再正式执行。", "success"
         self.plan_banner.set_message(message, kind)
+        self._refresh_report_action()
         self._update_execute_enabled()
         self._set_step(2)
 
@@ -629,23 +722,35 @@ class MainWindow(QMainWindow):
         self.execute_button.setEnabled(
             confirmations
             and self.controller.plan is not None
+            and self.controller.state is GuiState.DRY_RUN_REVIEW
             and not self.controller.busy
         )
 
     def _confirm_execute(self) -> None:
+        plan_snapshot = self.controller.plan
+        generation_snapshot = self.controller.plan_generation
+        if plan_snapshot is None:
+            self.plan_banner.set_message("当前预演计划已失效，请重新生成 dry-run。", "error")
+            return
+        plan_id_snapshot = plan_snapshot.plan_id
+        review_acknowledged = all(box.isChecked() for box in self.confirm_checks)
+        partial_acknowledged = self.partial_confirm.isChecked()
         dialog = QDialog(self)
         dialog.setWindowTitle("最后确认")
         layout = QVBoxLayout(dialog)
-        plan = self.controller.plan
         would_replace = (
-            sum(item.decision == "WOULD_REPLACE" for item in plan.items)
-            if plan is not None
-            else 0
+            sum(item.decision == "WOULD_REPLACE" for item in plan_snapshot.items)
         )
-        output = str(plan.options.output_dir) if plan is not None else "—"
+        output = str(plan_snapshot.options.output_dir)
+        scope = (
+            f"仅限图层名：{plan_snapshot.rule.layer_name}"
+            if plan_snapshot.rule.layer_name
+            else "不限图层名"
+        )
         message = QLabel(
             f"即将处理 {would_replace} 个 WOULD_REPLACE 文件。\n"
             "原 PSD 不覆盖。\n"
+            f"匹配范围：{scope}\n"
             f"输出目录：{output}"
         )
         message.setWordWrap(True)
@@ -663,11 +768,29 @@ class MainWindow(QMainWindow):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
         try:
+            self.controller.confirm_current_plan(
+                expected_plan=plan_snapshot,
+                expected_plan_id=plan_id_snapshot,
+                expected_generation=generation_snapshot,
+                review_acknowledged=review_acknowledged,
+                partial_acknowledged=partial_acknowledged,
+            )
             self._set_step(3)
             self.controller.start_execute()
         except RuntimeError as error:
-            self.plan_banner.set_message(str(error), "error")
-            self._set_step(2)
+            if self.controller.state is GuiState.USER_CONFIRMED:
+                self.controller.revoke_confirmation()
+            if self.controller.state is GuiState.SETUP and self.controller.plan is None:
+                self.setup_error.set_message(
+                    "正式执行未能安全启动，旧计划已失效；请重新检查并预演。",
+                    "error",
+                )
+                self._reset_layer_selection()
+                self._set_step(0)
+            else:
+                self.plan_banner.set_message(str(error), "error")
+                self._set_step(2)
+            self._update_execute_enabled()
 
     def show_execution_result(self, result: ExecutionRunResult) -> None:
         self.result_model.set_items(result.items)
@@ -698,6 +821,7 @@ class MainWindow(QMainWindow):
             message, kind = "✅ 已按确认计划完成，原 PSD 保持不变。", "success"
         self.result_title.setText(title)
         self.result_banner.set_message(message, kind)
+        self._refresh_report_action()
         self._set_step(4)
 
     def _on_environment(self, result: EnvironmentCheckResult) -> None:
@@ -713,11 +837,13 @@ class MainWindow(QMainWindow):
 
     def _on_busy(self, busy: bool, label: str) -> None:
         self.job_label.setText(label if busy else "就绪")
+        if not busy and self.controller.state is GuiState.SETUP:
+            self.job_context_label.setText("尚未开始")
         self.job_cancel.setVisible(busy)
         self.job_progress.setRange(0, 0 if busy else 1)
         self.job_progress.setValue(0 if busy else 1)
         self.inspect_button.setEnabled(not busy)
-        self.plan_button.setEnabled(not busy)
+        self._update_plan_enabled()
         self.execute_cancel.setEnabled(busy)
         for widget in (
             self.input_picker,
@@ -727,10 +853,10 @@ class MainWindow(QMainWindow):
             self.include_edit,
             self.from_edit,
             self.to_edit,
-            self.exact_layer_radio,
             self.any_layer_radio,
         ):
             widget.setEnabled(not busy)
+        self.exact_layer_radio.setEnabled(not busy and bool(self.selected_layer_name))
         self._update_execute_enabled()
 
     def _on_event(self, event: WorkflowEvent) -> None:
@@ -738,6 +864,47 @@ class MainWindow(QMainWindow):
         value = min(event.index, total)
         self.job_progress.setRange(0, total)
         self.job_progress.setValue(value)
+        if event.relative_path:
+            self.job_context_label.setText(
+                f"{event.index}/{event.total} · {event.relative_path}"
+            )
+            self.job_context_label.setToolTip(event.relative_path)
+        elif event.kind is WorkflowEventKind.RUN_STARTED:
+            self.job_context_label.setText(f"0/{event.total} · 准备中")
+            self.job_context_label.setToolTip("")
+        if (
+            event.phase is WorkflowPhase.EXECUTION
+            and event.kind is WorkflowEventKind.RUN_STARTED
+        ):
+            self._execute_status_counts = {"success": 0, "skipped": 0, "failed": 0}
+            self.execute_current_file.setText("当前文件：准备中")
+            for key, card in self.execute_cards.items():
+                card.set_value(self._execute_status_counts[key])
+        if (
+            event.phase is WorkflowPhase.EXECUTION
+            and event.kind is WorkflowEventKind.FILE_STARTED
+            and event.relative_path
+        ):
+            self.execute_current_file.setText(f"当前文件：{event.relative_path}")
+            self.execute_current_file.setToolTip(event.relative_path)
+        if (
+            event.phase is WorkflowPhase.EXECUTION
+            and event.kind is WorkflowEventKind.FILE_RESULT
+            and event.status
+        ):
+            if event.status == "REPLACED":
+                category = "success"
+            elif event.status.startswith("SKIPPED"):
+                category = "skipped"
+            elif event.status.startswith("FAILED"):
+                category = "failed"
+            else:
+                category = None
+            if category is not None:
+                self._execute_status_counts[category] += 1
+                self.execute_cards[category].set_value(
+                    self._execute_status_counts[category]
+                )
         if self.pages.currentIndex() == 3:
             self.execute_progress.setRange(0, total)
             self.execute_progress.setValue(value)
@@ -761,6 +928,20 @@ class MainWindow(QMainWindow):
 
     def _on_failure(self, code: str, message: str) -> None:
         safe = f"{code}: {message}"
+        if self.pages.currentIndex() == 3 and self.controller.state is GuiState.SETUP:
+            recovery = (
+                "正式执行遇到未预期错误，当前输出状态无法由 GUI 完整证明。"
+                "旧计划已失效，请重新检查并预演。"
+            )
+            self.execute_banner.set_message(recovery, "error")
+            self.setup_error.set_message(f"{recovery}\n安全诊断：{safe}", "error")
+            self.inspect_model.set_items(())
+            self.plan_model.set_items(())
+            self.result_model.set_items(())
+            self._reset_layer_selection()
+            self._refresh_report_action()
+            self._set_step(0)
+            return
         if self.pages.currentIndex() == 0:
             self.setup_error.set_message(safe, "error")
         elif self.pages.currentIndex() == 1:
@@ -787,11 +968,46 @@ class MainWindow(QMainWindow):
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(options.output_dir)))
 
     def _open_summary(self) -> None:
-        options = self.controller.options
-        if options is not None:
-            report = options.output_dir / "summary.json"
-            if report.exists():
-                QDesktopServices.openUrl(QUrl.fromLocalFile(str(report)))
+        reference = self.controller.formal_report_ref
+        if reference is None:
+            reference = self.controller.dry_run_report_ref
+        if reference is None:
+            self.result_banner.set_message("当前没有可证明归属的报告。", "warning")
+            self._refresh_report_action()
+            return
+        if not reference.summary_path.exists():
+            label = (
+                "本次执行报告已不存在"
+                if reference.phase == "EXECUTION"
+                else "预演报告已不存在"
+            )
+            self.result_banner.set_message(label, "warning")
+            self._refresh_report_action()
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(reference.summary_path)))
+
+    def _refresh_report_action(self) -> None:
+        formal = self.controller.formal_report_ref
+        dry_run = self.controller.dry_run_report_ref
+        if formal is not None:
+            exists = formal.summary_path.exists()
+            self.open_report_button.setText(
+                "打开本次执行报告" if exists else "本次执行报告已不存在"
+            )
+            self.open_report_button.setEnabled(exists)
+            self.open_report_button.setToolTip(str(formal.summary_path))
+            return
+        if dry_run is not None:
+            exists = dry_run.summary_path.exists()
+            self.open_report_button.setText(
+                "查看预演报告" if exists else "预演报告已不存在"
+            )
+            self.open_report_button.setEnabled(exists)
+            self.open_report_button.setToolTip(str(dry_run.summary_path))
+            return
+        self.open_report_button.setText("无可用报告")
+        self.open_report_button.setEnabled(False)
+        self.open_report_button.setToolTip("")
 
     def _copy_diagnostic(self) -> None:
         result = self.controller.execution_result
@@ -810,6 +1026,11 @@ class MainWindow(QMainWindow):
         self.result_model.set_items(())
         self.from_edit.clear()
         self.to_edit.clear()
+        self._reset_layer_selection()
+        self.plan_banner.set_message("")
+        self.result_banner.set_message("")
+        self.setup_error.set_message("")
+        self._refresh_report_action()
         self._set_step(0)
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802

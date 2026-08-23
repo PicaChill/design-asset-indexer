@@ -40,6 +40,13 @@ def build_stylesheet() -> str:
     QLabel#SuccessText {{ color: {t['SUCCESS']}; font-weight: 600; }}
     QLabel#WarningText {{ color: {t['WARNING']}; font-weight: 600; }}
     QLabel#ErrorText {{ color: {t['ERROR']}; font-weight: 600; }}
+    QLabel#Pill, QLabel#LayerScope {{
+        padding: 7px 10px;
+        background: {t['SURFACE_ALT']};
+        border: 1px solid {t['BORDER']};
+        border-radius: 8px;
+    }}
+    QLabel#JobTitle {{ font-weight: 700; }}
     QLineEdit, QSpinBox, QComboBox {{
         min-height: 38px;
         padding: 0 10px;
@@ -64,6 +71,7 @@ def build_stylesheet() -> str:
         background: #171b23;
     }}
     QPushButton#PrimaryButton {{
+        min-height: 44px;
         color: #0b1020;
         background: {t['PRIMARY']};
         border-color: {t['PRIMARY']};
