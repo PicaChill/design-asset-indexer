@@ -612,6 +612,125 @@ def test_execute_job_start_exception_is_transactional_and_fail_closed(qapp, tmp_
     assert controller.state is GuiState.SETUP
     assert controller.plan is None
     assert controller.execution_result is None
+    assert controller._confirmation is None
+    assert controller._starting is False
+    assert controller._job is None
+    assert controller._operation is None
+    assert not controller.busy
+
+
+def test_execute_busy_signal_reentrancy_cannot_invalidate_launch(qapp, tmp_path):
+    recorder = JobRecorder()
+    controller = WorkflowController(job_factory=recorder)
+    plan = _plan(_options(tmp_path / "source", tmp_path / "output"))
+    _prime_review(controller, plan)
+    _confirm(controller)
+    confirmation = controller._confirmation
+    observations: list[tuple[bool, SignatureExecutionPlan | None]] = []
+
+    def invalidate_during_busy(is_busy: bool, _label: str) -> None:
+        if is_busy:
+            observations.append((controller.busy, controller.plan))
+            controller.invalidate_setup()
+
+    controller.busy_changed.connect(invalidate_during_busy)
+    controller.start_execute()
+
+    assert observations == [(True, plan)]
+    assert controller.state is GuiState.EXECUTING
+    assert controller.plan is plan
+    assert controller._confirmation is confirmation
+    assert recorder.jobs[-1].request.plan is plan
+    assert controller.busy
+
+
+def test_execute_state_signal_reentrancy_rejects_second_start(qapp, tmp_path):
+    recorder = JobRecorder()
+    controller = WorkflowController(job_factory=recorder)
+    plan = _plan(_options(tmp_path / "source", tmp_path / "output"))
+    _prime_review(controller, plan)
+    _confirm(controller)
+    rejected: list[str] = []
+    captured: list[tuple[FakeJob | None, WorkerOperation | None]] = []
+
+    def start_again_during_state(state: GuiState) -> None:
+        if state is not GuiState.EXECUTING:
+            return
+        captured.append((controller._job, controller._operation))
+        try:
+            controller.check_environment()
+        except RuntimeError as exc:
+            rejected.append(str(exc))
+
+    controller.state_changed.connect(start_again_during_state)
+    controller.start_execute()
+
+    assert rejected == ["已有任务正在运行。"]
+    assert len(recorder.jobs) == 1
+    assert captured == [(recorder.jobs[0], WorkerOperation.EXECUTE)]
+    assert controller._job is recorder.jobs[0]
+    assert controller._operation is WorkerOperation.EXECUTE
+
+
+def test_job_factory_reentrancy_is_rejected_before_second_transaction(qapp, tmp_path):
+    jobs: list[FakeJob] = []
+    rejected: list[str] = []
+    controller: WorkflowController
+    plan = _plan(_options(tmp_path / "source", tmp_path / "output"))
+    other_options = _options(tmp_path / "other-source", tmp_path / "other-output")
+
+    def reentrant_factory(request: WorkerRequest) -> FakeJob:
+        assert controller.busy
+        try:
+            controller.start_inspect(other_options)
+        except RuntimeError as exc:
+            rejected.append(str(exc))
+        job = FakeJob(request)
+        jobs.append(job)
+        return job
+
+    controller = WorkflowController(job_factory=reentrant_factory)
+    _prime_review(controller, plan)
+    _confirm(controller)
+    controller.start_execute()
+
+    assert rejected == ["已有任务正在运行。"]
+    assert len(jobs) == 1
+    assert controller.options is plan.options
+    assert controller.plan is plan
+    assert controller._job is jobs[0]
+    assert controller._operation is WorkerOperation.EXECUTE
+    assert jobs[0].request.plan is plan
+
+
+def test_busy_reservation_covers_factory_running_and_finished_lifecycle(qapp, tmp_path):
+    jobs: list[FakeJob] = []
+    factory_busy: list[bool] = []
+    busy_signals: list[tuple[bool, bool]] = []
+    controller: WorkflowController
+
+    def observing_factory(request: WorkerRequest) -> FakeJob:
+        factory_busy.append(controller.busy)
+        job = FakeJob(request)
+        jobs.append(job)
+        return job
+
+    controller = WorkflowController(job_factory=observing_factory)
+    controller.busy_changed.connect(
+        lambda is_busy, _label: busy_signals.append((is_busy, controller.busy))
+    )
+    controller.start_inspect(_options(tmp_path / "source", tmp_path / "output"))
+
+    assert factory_busy == [True]
+    assert busy_signals == [(True, True)]
+    assert controller._starting is False
+    assert controller.busy
+
+    jobs[0].complete(_inspect())
+
+    assert busy_signals[-1] == (False, False)
+    assert controller._starting is False
+    assert controller._job is None
     assert not controller.busy
 
 

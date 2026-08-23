@@ -92,12 +92,17 @@ class WorkflowController(QObject):
         self._plan_generation = 0
         self._execution_generation = 0
         self._confirmation: _PlanConfirmation | None = None
+        self._starting = False
         self._job: RunningJob | None = None
         self._operation: WorkerOperation | None = None
 
     @property
     def busy(self) -> bool:
-        return self._job is not None and self._job.is_running()
+        return self._starting or self._job is not None
+
+    def _require_idle(self) -> None:
+        if self.busy:
+            raise RuntimeError("已有任务正在运行。")
 
     @property
     def plan_generation(self) -> int:
@@ -198,6 +203,7 @@ class WorkflowController(QObject):
         )
 
     def check_environment(self) -> None:
+        self._require_idle()
         self._start(
             WorkerRequest(WorkerOperation.ENVIRONMENT, CancellationToken()),
             GuiState.SETUP,
@@ -205,6 +211,7 @@ class WorkflowController(QObject):
         )
 
     def start_inspect(self, options: WorkflowOptions) -> None:
+        self._require_idle()
         self.options = options
         self.rule = None
         self.inspect_result = None
@@ -224,6 +231,7 @@ class WorkflowController(QObject):
         )
 
     def start_plan(self, rule: SignatureRule) -> None:
+        self._require_idle()
         if (
             self.state is not GuiState.INSPECTED
             or self.options is None
@@ -294,6 +302,7 @@ class WorkflowController(QObject):
             )
 
     def start_execute(self) -> None:
+        self._require_idle()
         if self.state is not GuiState.USER_CONFIRMED or self.plan is None:
             raise RuntimeError("没有可执行的已确认计划。")
         if not self.current_plan_confirmed:
@@ -323,15 +332,19 @@ class WorkflowController(QObject):
         state: GuiState,
         label: str,
     ) -> None:
-        if self.busy:
-            raise RuntimeError("已有任务正在运行。")
+        self._require_idle()
+        self._starting = True
         try:
             job = self._job_factory(request)
         except Exception:
-            self._handle_start_failure(request.operation)
+            try:
+                self._handle_start_failure(request.operation)
+            finally:
+                self._starting = False
             raise RuntimeError("后台任务创建失败，状态已安全重置。") from None
         self._job = job
         self._operation = request.operation
+        busy_announced = False
         try:
             job.event.connect(self.event_received.emit)
             job.completed.connect(self._on_completed)
@@ -339,14 +352,20 @@ class WorkflowController(QObject):
             job.failed.connect(self._on_failed)
             job.finished.connect(lambda current=job: self._on_finished(current))
             self._set_state(state)
+            busy_announced = True
             self.busy_changed.emit(True, label)
             job.start()
         except Exception:
             self._job = None
             self._operation = None
-            self.busy_changed.emit(False, "")
-            self._handle_start_failure(request.operation)
+            try:
+                self._handle_start_failure(request.operation)
+            finally:
+                self._starting = False
+                if busy_announced:
+                    self.busy_changed.emit(False, "")
             raise RuntimeError("后台任务启动失败，状态已安全重置。") from None
+        self._starting = False
 
     def _handle_start_failure(self, operation: WorkerOperation) -> None:
         if operation is WorkerOperation.EXECUTE:
@@ -450,6 +469,7 @@ class WorkflowController(QObject):
             wait()
         if self._job is not finished_job:
             return
+        self._starting = False
         self._job = None
         self._operation = None
         self.busy_changed.emit(False, "")
