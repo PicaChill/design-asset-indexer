@@ -294,6 +294,7 @@ class ExecutionRunResult:
     selected_count: int
     workflow_status: str
     diagnostics: tuple[str, ...] = ()
+    reports_written: bool = False
 
     @property
     def unplanned_count(self) -> int:

@@ -799,6 +799,7 @@ def _execution_result(
         selected_count=plan.selected_count,
         workflow_status=workflow_status,
         diagnostics=tuple(plan.diagnostics) + tuple(events.diagnostics),
+        reports_written=write_reports,
     )
 
 
@@ -1143,7 +1144,7 @@ def build_public_diagnostic(
     else:
         error_codes = sorted({item.error for item in result.items if item.error})
         phase = "INSPECT"
-    return {
+    diagnostic = {
         "app_version": __version__,
         "phase": phase,
         "file_count": int(result.summary.get("file_count", 0)),
@@ -1162,3 +1163,6 @@ def build_public_diagnostic(
         "error_codes": error_codes,
         "diagnostics": sorted(set(result.diagnostics)),
     }
+    if isinstance(result, ExecutionRunResult):
+        diagnostic["reports_written"] = result.reports_written
+    return diagnostic

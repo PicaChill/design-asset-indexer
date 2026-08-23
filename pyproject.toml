@@ -24,10 +24,12 @@ dependencies = ["Pillow>=10.0,<13"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<9", "build>=1.2,<2"]
+gui = ["PySide6>=6.11.1,<7"]
 photoshop = ["pywin32>=306; sys_platform == 'win32'"]
 
 [project.scripts]
 design-asset-index = "design_asset_indexer.cli:main"
+design-asset-index-gui = "design_asset_indexer.gui.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
