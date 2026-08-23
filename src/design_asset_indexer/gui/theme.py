@@ -78,6 +78,11 @@ def build_stylesheet() -> str:
         font-weight: 700;
     }}
     QPushButton#PrimaryButton:hover {{ background: {t['PRIMARY_HOVER']}; }}
+    QPushButton#PrimaryButton:disabled {{
+        color: {t['TEXT_MUTED']};
+        background: {t['SURFACE']};
+        border-color: {t['BORDER']};
+    }}
     QPushButton#DangerButton {{ color: {t['ERROR']}; border-color: {t['ERROR']}; }}
     QPushButton#StepButton {{
         min-height: 44px;
