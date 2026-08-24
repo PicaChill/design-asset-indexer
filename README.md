@@ -14,9 +14,9 @@
 > - ⚠️ **需要**：Windows + 本机 Adobe Photoshop
 > - ❌ **暂不支持**：栅格化署名、Smart Object 内文字、GIF 成品图署名
 
-v0.3.0 提供面向普通 Windows 用户的 Premium Simple GUI，并准备发布解压即用的
-Windows x64 portable ZIP。portable 用户不需要另外安装 Python；PSD 写入仍需要
-本机已安装 Adobe Photoshop。
+当前正式版本 v0.3.0 提供面向普通 Windows 用户的 Premium Simple GUI。Windows
+x64 portable ZIP 由本项目官方 GitHub Release 提供；portable 用户不需要另外安装 Python，
+PSD 写入仍需要本机已安装 Adobe Photoshop。
 
 > ⚠️ portable EXE 未做代码签名，Windows 可能显示 Unknown publisher 或
 > SmartScreen 提示。请只从本项目官方 GitHub Release 下载并核对 SHA-256。

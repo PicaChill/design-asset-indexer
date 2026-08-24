@@ -2,7 +2,7 @@
 
 本指南面向普通 Windows 用户。v0.3.0 推荐先用 Premium Simple GUI；CLI 保留给高级用法、自动化和排错。两条路线都坚持：**先检查、再预演、最后在你确认后只修改输出副本**。
 
-目标版本是 **v0.3.0**。它只支持 PSD 中明确匹配的**可编辑文字图层**，写入时仍需要用户自己安装 Adobe Photoshop。
+当前正式版本是 **v0.3.0**。Windows x64 portable ZIP 由本项目官方 GitHub Release 提供。它只支持 PSD 中明确匹配的**可编辑文字图层**，写入时仍需要用户自己安装 Adobe Photoshop。
 
 ## 目录
 
@@ -54,9 +54,9 @@
 
 https://github.com/PicaChill/design-asset-indexer
 
-目标版本是 v0.3.0。
+当前正式版本是 v0.3.0。
 
-正式发布后，请优先使用官方 v0.3.0 Release，不要从第三方站点下载 binary。
+请使用官方 v0.3.0 Release，不要从第三方站点下载 binary，并核对 SHA-256。
 
 请先检查：
 1. Windows 是否正常

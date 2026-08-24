@@ -1,6 +1,9 @@
 [CmdletBinding()]
 param(
-    [string]$PythonPath
+    [string]$PythonPath,
+    [Parameter(Mandatory)]
+    [ValidateNotNullOrEmpty()]
+    [string]$ExpectedSourceCommit
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,6 +16,38 @@ $DistRoot = Join-Path $PackagingRoot ".dist"
 $ReleaseRoot = Join-Path $PackagingRoot ".release"
 $Version = "0.3.0"
 $PortableName = "design-asset-indexer-v$Version-windows-x64"
+
+$ExpectedSourceCommit = $ExpectedSourceCommit.Trim().ToLowerInvariant()
+if ($ExpectedSourceCommit -notmatch "^[0-9a-f]{40}$") {
+    throw "ExpectedSourceCommit must be a non-empty 40-character Git commit SHA."
+}
+
+$ActualSourceCommit = (& git -C $ProjectRoot rev-parse HEAD).Trim().ToLowerInvariant()
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to read Git HEAD."
+}
+if ($ActualSourceCommit -ne $ExpectedSourceCommit) {
+    throw "ExpectedSourceCommit does not match HEAD: expected $ExpectedSourceCommit, actual $ActualSourceCommit."
+}
+
+$gitStatus = @(& git -C $ProjectRoot status --porcelain=v1 --untracked-files=all)
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to read Git status."
+}
+if ($gitStatus.Count -ne 0) {
+    throw "Release builds require a clean source tree."
+}
+
+$Pyproject = Get-Content -Raw -LiteralPath (Join-Path $ProjectRoot "pyproject.toml")
+$PackageInit = Get-Content -Raw -LiteralPath (
+    Join-Path $ProjectRoot "src\design_asset_indexer\__init__.py"
+)
+if (
+    $Pyproject -notmatch '(?m)^version\s*=\s*"0\.3\.0"\s*$' -or
+    $PackageInit -notmatch '(?m)^__version__\s*=\s*"0\.3\.0"\s*$'
+) {
+    throw "Release source version must be 0.3.0."
+}
 
 if (-not $PythonPath) {
     $PythonPath = Join-Path $ProjectRoot ".venv-package-v030\Scripts\python.exe"
@@ -94,14 +129,6 @@ if (-not [Environment]::Is64BitOperatingSystem) {
 }
 if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) {
     throw "Isolated build Python was not found. See packaging/windows/README.md."
-}
-
-$gitStatus = @(& git -C $ProjectRoot status --porcelain=v1 --untracked-files=all)
-if ($LASTEXITCODE -ne 0) {
-    throw "Unable to read Git status."
-}
-if ($gitStatus.Count -ne 0) {
-    throw "RC builds require a clean source tree."
 }
 
 $environmentJson = & $PythonPath -c @"
@@ -301,8 +328,6 @@ if ($Sdist.Name -ne "design_asset_indexer-0.3.0.tar.gz") {
     throw "Unexpected sdist name: $($Sdist.Name)"
 }
 
-$GitSha = (& git -C $ProjectRoot rev-parse HEAD).Trim()
-if ($LASTEXITCODE -ne 0) { throw "Unable to read Git SHA." }
 $ExePath = Join-Path $PortableRoot "DesignAssetIndexer.exe"
 $ExeSha = (Get-FileHash -LiteralPath $ExePath -Algorithm SHA256).Hash.ToLowerInvariant()
 $WheelSha = (Get-FileHash -LiteralPath $Wheel.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -323,7 +348,7 @@ $MicrosoftRuntimeFiles = @(
 $Provenance = [ordered]@{
     project = "design-asset-indexer"
     version = $Version
-    source_commit = $GitSha
+    source_commit = $ExpectedSourceCommit
     source_tree_clean = $true
     build_timestamp_utc = [DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ")
     build_os = [Environment]::OSVersion.VersionString

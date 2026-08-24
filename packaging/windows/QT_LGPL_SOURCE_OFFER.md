@@ -3,7 +3,8 @@
 This is the controlled technical source route for the v0.3.0 Windows x64
 portable build. It is not legal advice.
 
-The RC uses unmodified PySide6, Shiboken6, and Qt 6.11.2 community wheels.
+The official release uses unmodified PySide6, Shiboken6, and Qt 6.11.2
+community wheels.
 Matching official source archives are:
 
 1. Qt 6.11.2 complete source
@@ -13,10 +14,10 @@ Matching official source archives are:
    - https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.2-src/pyside-setup-everywhere-src-6.11.2.tar.xz
    - SHA-256: `cba47efbaad1bedd529725cbc14e21f156c7a19366f07b3edfbb076ffd7afdf8`
 
-The project will retain verified matching archives and release build recipes.
+The project retains verified matching archives and release build recipes.
 For at least three years after public distribution, a recipient may open an
 issue at https://github.com/PicaChill/design-asset-indexer/issues titled
 `Qt source request for v0.3.0`. The maintainer will provide the retained exact
-source, including any project modifications (none for this RC), for no more
+source, including any project modifications (none for this release), for no more
 than the reasonable cost of transfer. This project-controlled route remains
 available if an upstream mirror changes.

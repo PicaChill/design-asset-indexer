@@ -69,7 +69,11 @@ def test_build_script_has_bounded_release_contract():
         "licenses\\LGPL-3.0.txt",
         "licenses\\GPL-3.0.txt",
         "Unexplained Qt modules were bundled",
-        "RC builds require a clean source tree",
+        "Release builds require a clean source tree",
+        "[string]$ExpectedSourceCommit",
+        "ExpectedSourceCommit does not match HEAD",
+        "Release source version must be 0.3.0",
+        "source_commit = $ExpectedSourceCommit",
         "--dry-run",
     )
     assert all(value in source for value in required)
@@ -109,6 +113,32 @@ def test_build_script_parses_in_windows_powershell():
     assert result.returncode == 0, result.stderr
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="PowerShell gate is Windows-only")
+def test_build_script_rejects_a_source_commit_mismatch_before_building():
+    powershell = shutil.which("powershell")
+    assert powershell is not None
+    result = subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            str(WINDOWS_PACKAGING / "build_portable.ps1"),
+            "-PythonPath",
+            sys.executable,
+            "-ExpectedSourceCommit",
+            "0" * 40,
+        ],
+        capture_output=True,
+        check=False,
+    )
+    output = (result.stdout or b"") + (result.stderr or b"")
+    assert result.returncode != 0
+    assert b"ExpectedSourceCommit does not match HEAD" in output
+
+
 def test_packaging_source_has_no_private_paths_or_binary_fonts():
     absolute_windows_path = re.compile(r"(?<![a-z])[a-z]:[\\/]", re.IGNORECASE)
     for path in WINDOWS_PACKAGING.rglob("*"):
@@ -144,7 +174,7 @@ def test_v030_metadata_and_public_docs_are_synchronized():
     assert project["version"] == "0.3.0"
     assert '__version__ = "0.3.0"' in init_source
     assert "· 开发版" not in window_source
-    assert "## 0.3.0 - Unreleased" in (ROOT / "CHANGELOG.md").read_text(
+    assert "## 0.3.0 - 2026-08-24" in (ROOT / "CHANGELOG.md").read_text(
         encoding="utf-8"
     )
     assert "DesignAssetIndexer.exe" in readme

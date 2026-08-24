@@ -1,7 +1,7 @@
 # Windows x64 portable packaging
 
-This directory is the auditable source of truth for the v0.3.0 Premium Simple
-Windows portable release candidate.
+This directory is the auditable source of truth for the official v0.3.0
+Premium Simple Windows portable release.
 
 ## Architecture
 
@@ -37,7 +37,8 @@ py -3.11 -m venv .venv-package-v030
 Then run:
 
 ```powershell
-& ".\packaging\windows\build_portable.ps1"
+& ".\packaging\windows\build_portable.ps1" `
+  -ExpectedSourceCommit <exact-40-character-main-SHA>
 ```
 
 The script requires a clean source tree and deletes only these validated,
@@ -51,9 +52,11 @@ packaging/windows/.release/
 
 It never tags, publishes, uploads, installs globally, or reads user PSD files.
 
-## Release boundary
+## Official release distribution
 
-Phase 3R2 produces local RC artifacts and a Draft PR only. The portable ZIP
-must not be uploaded to a public GitHub Release without a later release
-authorization. Review `THIRD_PARTY_NOTICES.md`, `QT_LGPL_SOURCE_OFFER.md`, and
-`QT_RELINK_INSTRUCTIONS.md` before redistribution.
+The Windows x64 portable ZIP is distributed through the project's official
+GitHub Release. The executable is unsigned, so Windows may show Unknown
+publisher or SmartScreen. Download only from the official Release and verify
+the published SHA-256. Review `THIRD_PARTY_NOTICES.md`,
+`QT_LGPL_SOURCE_OFFER.md`, and `QT_RELINK_INSTRUCTIONS.md` before
+redistribution.
