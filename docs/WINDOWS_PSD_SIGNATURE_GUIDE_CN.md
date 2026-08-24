@@ -1,14 +1,15 @@
 # 🪟 Windows：PSD 表情包批量署名替换完整指南
 
-本指南面向第一次使用命令行的 Windows 用户。目标是：**先检查、再预演、最后在你确认后只修改输出副本**。
+本指南面向普通 Windows 用户。v0.3.0 推荐先用 Premium Simple GUI；CLI 保留给高级用法、自动化和排错。两条路线都坚持：**先检查、再预演、最后在你确认后只修改输出副本**。
 
-当前正式版本是 **v0.2.0**。它只支持 PSD 中明确匹配的**可编辑文字图层**，写入时需要本机 Adobe Photoshop。
+当前正式版本是 **v0.3.0**。Windows x64 portable ZIP 由本项目官方 GitHub Release 提供。它只支持 PSD 中明确匹配的**可编辑文字图层**，写入时仍需要用户自己安装 Adobe Photoshop。
 
 ## 目录
 
 - [✅ 开始前确认](#-开始前确认)
+- [🚀 GUI：最简单路线](#-gui最简单路线)
 - [🤖 让 AI 助手帮你操作](#-让-ai-助手帮你操作)
-- [📦 安装](#-安装)
+- [📦 CLI 安装（高级 / 排错）](#-cli-安装高级--排错)
 - [📁 准备输入和输出文件夹](#-准备输入和输出文件夹)
 - [🔒 原文件保护](#-原文件保护)
 - [🔍 第一步：检查 PSD 里的文字](#-第一步检查-psd-里的文字)
@@ -24,12 +25,24 @@
 请先确认：
 
 - ✅ Windows 可以正常使用。
-- ✅ 已安装 Python 3.11 或更新版本；当前项目 CI 覆盖 Python 3.11、3.12、3.13。
+- ✅ portable GUI 用户不需要另外安装 Python；CLI 用户需要 Python 3.11 或更新版本。
 - ✅ Adobe Photoshop 已安装，并且可以手动启动和打开 PSD。
 - ✅ 准备了与原素材分开的检查目录和输出目录。
 - ✅ 重要素材另有备份。
 
-> ⚠️ v0.2.0 没有 GUI、exe 或一键安装器，需要复制 PowerShell 命令。不会用时可以让能操作本机终端的 AI 助手协助。
+> ⚠️ v0.3.0 portable EXE 未做代码签名，Windows 可能显示 Unknown publisher 或 SmartScreen 提示。请只从本项目官方 GitHub Release 下载并核对 SHA-256；不要关闭 Defender 或永久关闭 SmartScreen。
+
+## 🚀 GUI：最简单路线
+
+1. 从本项目的[官方 GitHub Releases](https://github.com/PicaChill/design-asset-indexer/releases)下载 `design-asset-indexer-v0.3.0-windows-x64.zip` 和 `SHA256SUMS.txt`。
+2. 核对 ZIP 的 SHA-256，然后完整解压到独立目录；不要直接在 ZIP 内运行。
+3. 双击 `DesignAssetIndexer.exe`。portable GUI 不需要外部 Python。
+4. 查看顶部 Photoshop 状态；未连接时先确认 Photoshop 已安装且可启动。
+5. 选择包含 PSD 的输入位置；输出必须使用互不包含的独立目录。
+6. 检查文字图层并查看修改预览。
+7. 明确确认预览后再处理冻结计划，最后核对结果和输出副本。
+
+输入目录保持只读；程序不覆盖原 PSD。portable ZIP 不包含 Photoshop，也不是安装器，没有自动更新。
 
 ## 🤖 让 AI 助手帮你操作
 
@@ -41,9 +54,9 @@
 
 https://github.com/PicaChill/design-asset-indexer
 
-当前正式版本是 v0.2.0。
+当前正式版本是 v0.3.0。
 
-请优先使用正式的 v0.2.0 Release wheel，不要自动改用 main 开发版。
+请使用官方 v0.3.0 Release，不要从第三方站点下载 binary，并核对 SHA-256。
 
 请先检查：
 1. Windows 是否正常
@@ -85,22 +98,22 @@ https://github.com/PicaChill/design-asset-indexer
 >
 > 不要为了省步骤把私人 PSD 上传到不受信任的在线服务。
 
-## 📦 安装
+## 📦 CLI 安装（高级 / 排错）
 
 下面使用 **Release wheel + 独立虚拟环境**。这条路线不需要 Git，不需要下载源码，不安装 pytest/build，也不会修改全局 Python 环境。
 
-### 1. 下载 v0.2.0 wheel
+### 1. 下载 v0.3.0 wheel
 
-打开 [v0.2.0 Release](https://github.com/PicaChill/design-asset-indexer/releases/tag/v0.2.0)，下载：
+从本项目的[官方 GitHub Releases](https://github.com/PicaChill/design-asset-indexer/releases)下载：
 
 ```text
-design_asset_indexer-0.2.0-py3-none-any.whl
+design_asset_indexer-0.3.0-py3-none-any.whl
 ```
 
 下面假设它保存在：
 
 ```text
-D:\Downloads\design_asset_indexer-0.2.0-py3-none-any.whl
+D:\Downloads\design_asset_indexer-0.3.0-py3-none-any.whl
 ```
 
 如果你的实际下载位置不同，请替换命令里的 wheel 路径。
@@ -110,8 +123,8 @@ D:\Downloads\design_asset_indexer-0.2.0-py3-none-any.whl
 打开 PowerShell，执行：
 
 ```powershell
-New-Item -ItemType Directory -Path "D:\design-asset-indexer-v020" -Force
-py -3.11 -m venv "D:\design-asset-indexer-v020\venv"
+New-Item -ItemType Directory -Path "D:\design-asset-indexer-v030" -Force
+py -3.11 -m venv "D:\design-asset-indexer-v030\venv"
 ```
 
 如果你安装的是 Python 3.12 或 3.13，把 `-3.11` 改成 `-3.12` 或 `-3.13`。
@@ -119,8 +132,8 @@ py -3.11 -m venv "D:\design-asset-indexer-v020\venv"
 ### 3. 安装 wheel 和 Photoshop 依赖
 
 ```powershell
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m pip install "D:\Downloads\design_asset_indexer-0.2.0-py3-none-any.whl"
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m pip install "pywin32>=306"
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m pip install "D:\Downloads\design_asset_indexer-0.3.0-py3-none-any.whl"
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m pip install "pywin32>=306"
 ```
 
 这里故意分成两条命令，避免依赖本地 wheel 的 extras 语法。后续所有命令都显式使用 venv 内的 Python，**不需要激活虚拟环境**。
@@ -128,9 +141,9 @@ py -3.11 -m venv "D:\design-asset-indexer-v020\venv"
 ### 4. 验证安装
 
 ```powershell
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer --help
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer signature-inspect --help
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer signature-replace --help
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer --help
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer signature-inspect --help
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer signature-replace --help
 ```
 
 三条命令都显示帮助内容，就可以继续。
@@ -141,15 +154,15 @@ py -3.11 -m venv "D:\design-asset-indexer-v020\venv"
 
 | 目录 | 用途 |
 |---|---|
-| `D:\表情包_原始` | 放原始 PSD，只作为输入 |
-| `D:\表情包_检查` | 保存文字图层检查报告 |
-| `D:\表情包_已改署名` | 保存预演报告和正式修改后的输出副本 |
+| `D:\PSD素材_原始` | 放原始 PSD，只作为输入 |
+| `D:\PSD素材_检查` | 保存文字图层检查报告 |
+| `D:\PSD素材_输出` | 保存预演报告和正式修改后的输出副本 |
 
 可以先创建后两个目录：
 
 ```powershell
-New-Item -ItemType Directory -Path "D:\表情包_检查" -Force
-New-Item -ItemType Directory -Path "D:\表情包_已改署名" -Force
+New-Item -ItemType Directory -Path "D:\PSD素材_检查" -Force
+New-Item -ItemType Directory -Path "D:\PSD素材_输出" -Force
 ```
 
 必须同时满足：
@@ -158,7 +171,7 @@ New-Item -ItemType Directory -Path "D:\表情包_已改署名" -Force
 - **输出不能在输入里面**。
 - **输入也不能在输出里面**。
 
-不要使用 `D:\表情包\原始` 和 `D:\表情包\原始\output` 这种嵌套结构。
+不要使用 `D:\PSD素材\原始` 和 `D:\PSD素材\原始\output` 这种嵌套结构。
 
 ## 🔒 原文件保护
 
@@ -178,17 +191,17 @@ New-Item -ItemType Directory -Path "D:\表情包_已改署名" -Force
 先不加图层名过滤，查看输入目录第一层里的 PSD：
 
 ```powershell
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer signature-inspect `
-  "D:\表情包_原始" `
-  --out "D:\表情包_检查"
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer signature-inspect `
+  "D:\PSD素材_原始" `
+  --out "D:\PSD素材_检查"
 ```
 
 如果 PSD 还放在子文件夹中，加 `--recursive`：
 
 ```powershell
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer signature-inspect `
-  "D:\表情包_原始" `
-  --out "D:\表情包_检查" `
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer signature-inspect `
+  "D:\PSD素材_原始" `
+  --out "D:\PSD素材_检查" `
   --recursive
 ```
 
@@ -200,7 +213,7 @@ New-Item -ItemType Directory -Path "D:\表情包_已改署名" -Force
 
 `--contains-text` 只用来帮助检查报告标记可能相关的文字，不会把正式替换变成模糊匹配。正式替换仍要求 `--from` 与完整文字完全相同。
 
-打开 `D:\表情包_检查\signature_layers.csv`，主要看：
+打开 `D:\PSD素材_检查\signature_layers.csv`，主要看：
 
 | 列 | 用途 |
 |---|---|
@@ -216,9 +229,9 @@ New-Item -ItemType Directory -Path "D:\表情包_已改署名" -Force
 > **`--dry-run` = 只告诉你“如果正式执行会发生什么”，不会生成修改后的 PSD，也不会调用保存。**
 
 ```powershell
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer signature-replace `
-  "D:\表情包_原始" `
-  --out "D:\表情包_已改署名" `
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer signature-replace `
+  "D:\PSD素材_原始" `
+  --out "D:\PSD素材_输出" `
   --from "旧署名" `
   --to "新署名" `
   --dry-run
@@ -227,7 +240,7 @@ New-Item -ItemType Directory -Path "D:\表情包_已改署名" -Force
 PSD 在子文件夹时加 `--recursive`。然后打开：
 
 ```text
-D:\表情包_已改署名\planned_changes.csv
+D:\PSD素材_输出\planned_changes.csv
 ```
 
 `decision` 的真实值和白话含义：
@@ -247,18 +260,18 @@ D:\表情包_已改署名\planned_changes.csv
 确认 `planned_changes.csv` 后，使用相同参数，**只去掉 `--dry-run`**：
 
 ```powershell
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer signature-replace `
-  "D:\表情包_原始" `
-  --out "D:\表情包_已改署名" `
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer signature-replace `
+  "D:\PSD素材_原始" `
+  --out "D:\PSD素材_输出" `
   --from "旧署名" `
   --to "新署名"
 ```
 
 正式执行的 input、output、`--from`、`--to`、`--recursive`、`--layer-name`、`--include`、`--max-files` 必须与已确认的 dry-run 完全相同，唯一允许的变化是去掉 `--dry-run`。未使用的可选参数也不要在正式执行时临时新增。
 
-- 修改后的 PSD：在 `D:\表情包_已改署名`，并保持原来的相对子目录结构。
-- 原始 PSD：仍在 `D:\表情包_原始`，程序不会保存覆盖它们。
-- 正式结果：查看 `D:\表情包_已改署名\signature_replace_results.csv`。
+- 修改后的 PSD：在 `D:\PSD素材_输出`，并保持原来的相对子目录结构。
+- 原始 PSD：仍在 `D:\PSD素材_原始`，程序不会保存覆盖它们。
+- 正式结果：查看 `D:\PSD素材_输出\signature_replace_results.csv`。
 
 正式 `status` 常见值：
 
@@ -378,7 +391,7 @@ py -0p
 可用下面命令确认依赖：
 
 ```powershell
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m pip show pywin32
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m pip show pywin32
 ```
 
 ### 中文路径和中文文字可以用吗？
@@ -402,8 +415,8 @@ py -0p
 查看当前版本的完整参数：
 
 ```powershell
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer signature-inspect --help
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer signature-replace --help
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer signature-inspect --help
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer signature-replace --help
 ```
 
 ## 🐛 出问题怎么反馈
@@ -413,7 +426,7 @@ py -0p
 - Windows 版本
 - Python 版本
 - Photoshop 版本
-- 项目版本（例如 v0.2.0）
+- 项目版本（例如 v0.3.0）
 - 执行的命令，但先隐去私人路径和署名
 - `summary.json` 中不敏感的计数与状态字段
 - `error_code` / `error_message`

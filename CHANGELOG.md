@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented here.
 
+## 0.3.0 - 2026-08-24
+
+- Make the Premium Simple PySide6 workflow the public desktop interface.
+- Preserve the exact-plan confirmation, fail-closed execution, source-copy,
+  cooperative cancellation, and authoritative reporting safety boundaries.
+- Release an unsigned Windows x64 standalone portable build with
+  the official `pyside6-deploy` wrapper and Nuitka.
+- Add portable-build provenance, third-party notices, Qt LGPL source and
+  replacement instructions, license texts, and SHA-256 verification.
+- Keep onefile, installers, automatic updates, telemetry, and code signing out
+  of the v0.3.0 scope.
+
 ## 0.2.0 - 2026-08-22
 
 - Add Photoshop-backed PSD text-layer inspection with nested layer paths.

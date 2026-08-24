@@ -11,6 +11,7 @@ import json
 from collections import defaultdict
 from enum import Enum
 from pathlib import Path, PurePosixPath
+import sys
 from typing import Callable
 
 from PySide6.QtCore import QTimer, Qt, QUrl
@@ -88,6 +89,18 @@ def suggest_sibling_output(input_text: str) -> str | None:
     if not source.name:
         return None
     return str(source.parent / f"{source.name}_署名替换输出")
+
+
+def resolve_help_document() -> Path | None:
+    """Find the source or portable help document without assuming a checkout."""
+
+    candidates = (
+        Path(__file__).resolve().parents[3]
+        / "docs"
+        / "WINDOWS_PSD_SIGNATURE_GUIDE_CN.md",
+        Path(sys.executable).resolve().parent / "README.txt",
+    )
+    return next((path for path in candidates if path.is_file()), None)
 
 
 def premium_stylesheet() -> str:
@@ -566,7 +579,8 @@ class PremiumSimpleWindow(QMainWindow):
         layout.setContentsMargins(34, 14, 34, 14)
         layout.setSpacing(14)
         layout.addWidget(_label("表情包 PSD 批量署名替换", "Brand"))
-        layout.addWidget(_label(f"v{__version__} · 开发版", "Version"))
+        self.version_label = _label(f"v{__version__}", "Version")
+        layout.addWidget(self.version_label)
         layout.addStretch(1)
         self.photoshop_pill = _label("●  Photoshop 尚未检查", "ConnectionPill")
         self.photoshop_pill.setProperty("available", "unknown")
@@ -1626,8 +1640,8 @@ class PremiumSimpleWindow(QMainWindow):
             self.close()
 
     def _open_help(self) -> None:
-        path = Path(__file__).resolve().parents[3] / "docs" / "WINDOWS_PSD_SIGNATURE_GUIDE_CN.md"
-        if path.exists():
+        path = resolve_help_document()
+        if path is not None:
             QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
         else:
             QMessageBox.information(
@@ -1659,5 +1673,6 @@ __all__ = [
     "PremiumPage",
     "PremiumSimpleWindow",
     "premium_stylesheet",
+    "resolve_help_document",
     "suggest_sibling_output",
 ]

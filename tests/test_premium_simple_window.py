@@ -13,6 +13,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtCore import QEvent
 from PySide6.QtWidgets import QApplication, QDialog, QWidget
 
+from design_asset_indexer import __version__
 from design_asset_indexer.gui import app
 from design_asset_indexer.gui.controller import GuiState, ReportReference, WorkflowController
 from design_asset_indexer.gui.premium_simple_window import (
@@ -88,6 +89,14 @@ def test_public_app_creates_premium_simple_window(qapp):
     window = app.create_public_window(auto_environment_check=False)
     assert isinstance(window, PremiumSimpleWindow)
     assert all(widget.objectName() != "StepRail" for widget in window.findChildren(QWidget))
+    window.close()
+
+
+def test_v030_public_label_has_no_development_marker(qapp):
+    window = PremiumSimpleWindow(auto_environment_check=False)
+    assert __version__ == "0.3.0"
+    assert window.version_label.text() == "v0.3.0"
+    assert "开发版" not in window.current_visible_text()
     window.close()
 
 

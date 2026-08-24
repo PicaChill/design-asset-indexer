@@ -1,6 +1,10 @@
 .venv/
+.venv-package-v030/
 dist/
 build/
+packaging/windows/.build/
+packaging/windows/.dist/
+packaging/windows/.release/
 .pytest_cache/
 __pycache__/
 *.py[cod]
