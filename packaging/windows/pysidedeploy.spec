@@ -30,7 +30,7 @@ plugins =
 
 macos.permissions =
 mode = standalone
-extra_args = --quiet --noinclude-qt-translations --windows-console-mode=disable --output-filename=DesignAssetIndexer.exe --product-name="Design Asset Indexer" --product-version=0.3.0 --file-version=0.3.0.0 --assume-yes-for-downloads --report=.build/nuitka-compilation-report.xml
+extra_args = --quiet --noinclude-qt-translations --noinclude-dlls=*/imageformats/qpdf.dll --windows-console-mode=disable --output-filename=DesignAssetIndexer.exe --product-name="Design Asset Indexer" --product-version=0.3.0 --file-version=0.3.0.0 --assume-yes-for-downloads --report=.build/nuitka-compilation-report.xml
 
 [buildozer]
 

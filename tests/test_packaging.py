@@ -37,6 +37,7 @@ def test_portable_spec_is_auditable_standalone_configuration():
     ]
     extra_args = config["nuitka"]["extra_args"]
     assert "--windows-console-mode=disable" in extra_args
+    assert "--noinclude-dlls=*/imageformats/qpdf.dll" in extra_args
     assert "--output-filename=DesignAssetIndexer.exe" in extra_args
     assert '--product-name="Design Asset Indexer"' in extra_args
     assert "--product-version=0.3.0" in extra_args
@@ -111,6 +112,9 @@ def test_packaging_source_has_no_private_paths_or_binary_fonts():
     absolute_windows_path = re.compile(r"(?<![a-z])[a-z]:[\\/]", re.IGNORECASE)
     for path in WINDOWS_PACKAGING.rglob("*"):
         if not path.is_file():
+            continue
+        relative_parts = path.relative_to(WINDOWS_PACKAGING).parts
+        if any(part in {".build", ".dist", ".release"} for part in relative_parts):
             continue
         assert path.suffix.lower() not in {".ttf", ".otf", ".woff", ".woff2"}
         text = path.read_text(encoding="utf-8", errors="ignore")
