@@ -166,10 +166,18 @@ $RuntimeSpec = Join-Path $PackagingRoot "pysidedeploy.runtime.spec"
 Copy-Item -LiteralPath (Join-Path $PackagingRoot "pysidedeploy.spec") -Destination $RuntimeSpec
 Push-Location $PackagingRoot
 try {
-    & $DeployTool -c ".\pysidedeploy.runtime.spec" --force 2>&1 |
-        Tee-Object -FilePath $DeployLog
-    if ($LASTEXITCODE -ne 0) {
-        throw "pyside6-deploy failed with exit code $LASTEXITCODE."
+    $savedErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $DeployTool -c ".\pysidedeploy.runtime.spec" --force 2>&1 |
+            Tee-Object -FilePath $DeployLog
+        $deployExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+    if ($deployExitCode -ne 0) {
+        throw "pyside6-deploy failed with exit code $deployExitCode."
     }
 }
 finally {
