@@ -21,10 +21,15 @@ optional dependency is a separate third-party work with its own licensing.
 ## Distribution approach
 
 PySide6 is an optional `gui` extra and is not required for the base CLI wheel.
-This Phase 2 branch supports source-run GUI development only and does not
-publish an installer, portable executable, or bundled Qt binary. Any future GUI
-binary distribution requires a fresh license and packaging review, including
-the applicable Qt and bundled third-party notices.
+The v0.3.0 release-candidate preparation uses a Windows x64 standalone
+directory, with Qt shared DLLs and plugins kept as separate replaceable files.
+It does not use onefile packing, an installer, DRM, UPX, code signing, telemetry,
+or automatic updates. The bundle-specific inventory, notices, Qt LGPL source
+route, relinking instructions, and build provenance are maintained under
+[`packaging/windows/`](../packaging/windows/).
+
+Phase 3R2 produces local release-candidate artifacts and a Draft PR only.
+Public binary distribution remains a separate release gate.
 
 This notice records dependency provenance and license families; it is not a
 final legal opinion.

@@ -1,0 +1,52 @@
+# Windows x64 portable packaging
+
+This directory is the auditable source of truth for the v0.3.0 Premium Simple
+Windows portable release candidate.
+
+## Architecture
+
+- official `pyside6-deploy` wrapper with the Nuitka 4.1.1 backend
+- Windows x86_64 `standalone` directory mode
+- Qt shared DLLs and plugins remain separate and replaceable
+- no onefile, installer, updater, UPX, icon, code signing, telemetry, or Adobe
+  components
+- a thin launcher that delegates directly to
+  `design_asset_indexer.gui.app:main`
+
+`pysidedeploy.spec` records the Qt Widgets modules and plugins used by the
+application. The build rejects unexplained QtWebEngine, QtQuick, QML,
+QtMultimedia, and Qt3D payloads.
+
+## Isolated build environment
+
+Use Python 3.11 x64 and do not install packaging tools globally:
+
+```powershell
+py -3.11 -m venv .venv-package-v030
+& ".\.venv-package-v030\Scripts\python.exe" -m pip install --upgrade pip
+& ".\.venv-package-v030\Scripts\python.exe" -m pip install -e ".[dev]" -r ".\packaging\windows\requirements-build.txt"
+```
+
+Then run:
+
+```powershell
+& ".\packaging\windows\build_portable.ps1"
+```
+
+The script requires a clean source tree and deletes only these validated,
+ignored, disposable directories:
+
+```text
+packaging/windows/.build/
+packaging/windows/.dist/
+packaging/windows/.release/
+```
+
+It never tags, publishes, uploads, installs globally, or reads user PSD files.
+
+## Release boundary
+
+Phase 3R2 produces local RC artifacts and a Draft PR only. The portable ZIP
+must not be uploaded to a public GitHub Release without a later release
+authorization. Review `THIRD_PARTY_NOTICES.md`, `QT_LGPL_SOURCE_OFFER.md`, and
+`QT_RELINK_INSTRUCTIONS.md` before redistribution.

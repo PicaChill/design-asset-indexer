@@ -14,36 +14,46 @@
 > - ⚠️ **需要**：Windows + 本机 Adobe Photoshop
 > - ❌ **暂不支持**：栅格化署名、Smart Object 内文字、GIF 成品图署名
 
-你可以自己照下面操作；如果你有能操作本机终端的 **Codex / ChatGPT / Claude**，也可以把使用指南里的提示词交给它，让 AI 帮你检查环境、安装和预演。
+v0.3.0 提供面向普通 Windows 用户的 Premium Simple GUI，并准备发布解压即用的
+Windows x64 portable ZIP。portable 用户不需要另外安装 Python；PSD 写入仍需要
+本机已安装 Adobe Photoshop。
 
-v0.2.0 只替换 PSD **可编辑文字图层**中与旧署名完全相同的文字。找不到唯一目标时会安全跳过，不做 OCR、模糊匹配或猜测。
+> ⚠️ portable EXE 未做代码签名，Windows 可能显示 Unknown publisher 或
+> SmartScreen 提示。请只从本项目官方 GitHub Release 下载并核对 SHA-256。
+
+v0.3.0 只替换 PSD **可编辑文字图层**中与旧署名完全相同的文字。找不到唯一目标时会安全跳过，不做 OCR、模糊匹配或猜测。
 
 ## 🚀 从这里开始
 
-### 🤖 方式 A：让 AI 助手帮你操作
+### 🪟 Windows GUI（推荐）
 
-如果你有能操作本机终端的 Codex / ChatGPT / Claude，推荐直接打开 [Windows 完整使用指南](docs/WINDOWS_PSD_SIGNATURE_GUIDE_CN.md#-让-ai-助手帮你操作)，复制里面的提示词。
+1. 从本项目的[官方 GitHub Releases](https://github.com/PicaChill/design-asset-indexer/releases)
+   下载 `design-asset-indexer-v0.3.0-windows-x64.zip` 和 `SHA256SUMS.txt`。
+2. 核对 ZIP 的 SHA-256，然后完整解压到独立目录；不要直接在 ZIP 内运行。
+3. 双击 `DesignAssetIndexer.exe`。
+4. 查看顶部 Photoshop 状态；未连接时先确认 Photoshop 已安装且可启动。
+5. 选择包含 PSD 的输入位置；输出使用独立目录，程序不覆盖原 PSD。
+6. 检查文字图层并查看修改预览。
+7. 确认预览无误后勾选确认，再处理冻结的计划并查看结果。
+
+### ⌨️ CLI / wheel（高级路径）
+
+CLI、wheel 和已有自动化脚本继续受支持，适合批处理、排错或需要明确控制参数的用户。CLI 同样必须先 inspect、再 dry-run，并保证正式执行参数与确认过的计划一致。
+
+如果你有能操作本机终端的 Codex / ChatGPT / Claude，可打开 [Windows 完整使用指南](docs/WINDOWS_PSD_SIGNATURE_GUIDE_CN.md#-让-ai-助手帮你操作)复制 CLI 协助提示词。
 
 > ⚠️ AI 也必须先做**预演**，未经你确认不要正式替换；不要把私人 PSD 上传给不受信任的在线服务。
-
-### ⌨️ 方式 B：自己操作
-
-1. 安装 Python 3.11+ 和 Adobe Photoshop。
-2. 从 [v0.2.0 Release](https://github.com/PicaChill/design-asset-indexer/releases/tag/v0.2.0) 下载 wheel，并安装到独立虚拟环境。
-3. 运行 `signature-inspect`，先确认 PSD 里的实际文字。
-4. 运行 `signature-replace --dry-run`，只预演，不修改 PSD。
-5. 确认 `planned_changes.csv` 后，去掉 `--dry-run` 正式执行。
 
 👉 [查看 Windows 完整使用指南](docs/WINDOWS_PSD_SIGNATURE_GUIDE_CN.md)
 
 ## 🧪 最短示例
 
-下面假设你已经按完整指南把 v0.2.0 安装在 `D:\design-asset-indexer-v020\venv`。先预演，不真正修改：
+下面是高级 CLI 示例，假设你已把 v0.3.0 wheel 安装在 `D:\design-asset-indexer-v030\venv`。先预演，不真正修改：
 
 ```powershell
-& "D:\design-asset-indexer-v020\venv\Scripts\python.exe" -m design_asset_indexer signature-replace `
-  "D:\表情包_原始" `
-  --out "D:\表情包_已改署名" `
+& "D:\design-asset-indexer-v030\venv\Scripts\python.exe" -m design_asset_indexer signature-replace `
+  "D:\PSD素材_原始" `
+  --out "D:\PSD素材_输出" `
   --from "旧署名" `
   --to "新署名" `
   --dry-run
@@ -85,7 +95,8 @@ JSON、JSONL 和 `summary.json` 主要给程序或高级排错使用，第一次
 - ❌ Smart Object / linked Smart Object 内文字
 - ❌ GIF / PNG / JPG 成品图署名替换
 - ❌ OCR、模糊匹配或自动猜测
-- ❌ GUI、exe 或一键安装包
+- ❌ 安装器、MSI / MSIX、onefile 和自动更新
+- ⚠️ portable EXE 当前未做代码签名
 - ⚠️ 写入必须使用 Windows + Adobe Photoshop
 - ⚠️ 只支持 PSD 可编辑文字图层
 
@@ -137,10 +148,10 @@ PSD / PSB parser 是最小实现，不渲染完整画面；内嵌预览只支持
 
 Batch-replace exact attribution text in editable PSD text layers on Windows with Photoshop.
 
-`design-asset-indexer` runs locally, writes only copied outputs, supports dry-run, and skips ambiguous matches. It also provides offline asset inventory, PSD/PSB metadata and preview extraction, read-only ZIP indexing, SHA-256 duplicate candidates, reports, contact sheets, and dHash hints.
+`design-asset-indexer` runs locally, writes only copied outputs, supports dry-run, and skips ambiguous matches. v0.3.0 adds a Premium Simple PySide6 GUI and an unsigned Windows x64 standalone portable build. Adobe Photoshop is still required for PSD writes; portable users do not need a separate Python installation.
 
-Rasterized text, text inside Smart Objects, GIF/PNG/JPEG attribution replacement, and a GUI are not supported.
+Rasterized text, text inside Smart Objects, GIF/PNG/JPEG attribution replacement, installers, onefile packaging, and automatic updates are not supported.
 
 ## License
 
-本项目使用 MIT License，详见 [`LICENSE`](LICENSE)。Pillow 与 pywin32 是独立依赖，分别使用各自的许可证。
+本项目使用 MIT License，详见 [`LICENSE`](LICENSE)。portable build 会分发 Python、PySide6/Qt、Pillow 与 pywin32 等独立第三方组件；其许可、Qt LGPL 技术清单和对应源码机制见 [`packaging/windows/`](packaging/windows/)。这不是法律意见。
