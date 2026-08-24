@@ -109,19 +109,19 @@ import json, platform, sys, sysconfig
 from importlib.metadata import version
 from PySide6.QtCore import qVersion
 print(json.dumps({
-    "is_venv": sys.prefix != sys.base_prefix,
-    "python_version": platform.python_version(),
-    "architecture": platform.machine(),
-    "pyside6_version": version("PySide6"),
-    "qt_version": qVersion(),
-    "shiboken6_version": version("shiboken6"),
-    "nuitka_version": version("Nuitka"),
-    "pillow_version": version("Pillow"),
-    "pywin32_version": version("pywin32"),
-    "ordered_set_version": version("ordered-set"),
-    "zstandard_version": version("zstandard"),
-    "python_root": sys.base_prefix,
-    "site_packages": sysconfig.get_paths()["purelib"],
+    'is_venv': sys.prefix != sys.base_prefix,
+    'python_version': platform.python_version(),
+    'architecture': platform.machine(),
+    'pyside6_version': version('PySide6'),
+    'qt_version': qVersion(),
+    'shiboken6_version': version('shiboken6'),
+    'nuitka_version': version('Nuitka'),
+    'pillow_version': version('Pillow'),
+    'pywin32_version': version('pywin32'),
+    'ordered_set_version': version('ordered-set'),
+    'zstandard_version': version('zstandard'),
+    'python_root': sys.base_prefix,
+    'site_packages': sysconfig.get_paths()['purelib'],
 }, ensure_ascii=True))
 "@
 if ($LASTEXITCODE -ne 0) {
