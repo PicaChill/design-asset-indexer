@@ -1,6 +1,23 @@
-# Headless GUI workflow architecture
+# GUI workflow architecture
 
-This document describes the Python application core that a future desktop GUI may call. It does not describe an implemented GUI and adds no GUI dependency.
+The public desktop entry point uses the novice-first `PremiumSimpleWindow`.
+The earlier five-step `MainWindow` remains in the source tree as an internal
+regression reference, but it is no longer the public presentation. Both
+presentations depend on the same controller, workers, and immutable headless
+workflow; the Premium Simple window does not duplicate matching, copy, or
+fail-clean behavior.
+
+```text
+PremiumSimpleWindow (public presentation)
+  -> WorkflowController (single GUI state authority)
+  -> RunningJob / WorkflowWorker (thread and COM boundary)
+  -> workflow.py / workflow_models.py (immutable plan and typed results)
+  -> signatures.py / PhotoshopAdapter (existing business behavior)
+```
+
+The public presentation hides advanced settings, detailed rows, and diagnostics
+by default. Its compact confirmation dialog still binds the exact reviewed plan
+object, plan ID, and controller generation before frozen-plan execution.
 
 ## State model
 
@@ -10,7 +27,7 @@ The presentation layer must enforce this sequence:
 SETUP
   -> INSPECTING
   -> INSPECTED
-  -> DRY_RUNNING
+  -> PLANNING
   -> DRY_RUN_REVIEW
   -> USER_CONFIRMED
   -> EXECUTING
@@ -111,7 +128,7 @@ for inspect, dry-run planning, and formal execution.
 
 ### Photoshop COM worker lifecycle
 
-A future Windows GUI must keep the complete COM apartment and adapter lifecycle
+The Windows GUI keeps the complete COM apartment and adapter lifecycle
 inside one worker thread:
 
 ```text
@@ -126,9 +143,9 @@ pythoncom.CoUninitialize()
   because either may establish the cached COM connection.
 - A connected adapter and every COM object it owns must never cross threads.
 - Do not create one temporary thread per button while reusing one adapter.
-- Phase 2 may use one long-lived Photoshop worker, or a fresh worker plus fresh
-  adapter for each phase. In either design, `CoInitialize`, adapter creation and
-  use, and `CoUninitialize` stay in that same worker thread.
+- The current worker creates a fresh adapter for a phase. `CoInitialize`,
+  adapter creation and use, and `CoUninitialize` stay in that same worker
+  thread.
 
 ## Structured events
 
@@ -172,7 +189,7 @@ Typed plans/results also expose `candidate_count`, `selected_count`,
 
 The existing CSV, JSONL, and `summary.json` reports are still written. Workflow-only metadata such as `plan_id`, `cancelled`, `stale`, and `remaining_count` is not added to the v0.2 persisted summary schema.
 
-### Completion authority for a future GUI
+### Completion authority for the GUI
 
 The frozen typed result is the only authority for GUI completion state.
 `summary.json` remains a v0.2-compatible business summary and cannot tell a GUI

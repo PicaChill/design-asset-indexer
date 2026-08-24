@@ -8,6 +8,14 @@ from typing import Sequence
 from . import GUI_EXTRA_HINT
 
 
+def create_public_window(*, auto_environment_check: bool = True):
+    """Create the current public window without importing Qt at module import time."""
+
+    from .premium_simple_window import PremiumSimpleWindow
+
+    return PremiumSimpleWindow(auto_environment_check=auto_environment_check)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Launch the GUI or print a concise optional-dependency hint."""
 
@@ -22,7 +30,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
         return 2
 
-    from .main_window import MainWindow
     from .theme import build_application_font, build_stylesheet
 
     arguments = list(argv) if argv is not None else sys.argv
@@ -35,6 +42,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     application.setStyle("Fusion")
     application.setFont(build_application_font())
     application.setStyleSheet(build_stylesheet())
-    window = MainWindow()
+    window = create_public_window()
     window.show()
     return application.exec()
