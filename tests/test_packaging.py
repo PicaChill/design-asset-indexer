@@ -38,6 +38,7 @@ def test_portable_spec_is_auditable_standalone_configuration():
     extra_args = config["nuitka"]["extra_args"]
     assert "--windows-console-mode=disable" in extra_args
     assert "--noinclude-dlls=*/imageformats/qpdf.dll" in extra_args
+    assert "--noinclude-dlls=qt6pdf.dll" in extra_args
     assert "--output-filename=DesignAssetIndexer.exe" in extra_args
     assert '--product-name="Design Asset Indexer"' in extra_args
     assert "--product-version=0.3.0" in extra_args

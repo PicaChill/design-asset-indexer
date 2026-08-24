@@ -210,6 +210,7 @@ Invoke-Checked -FilePath $PythonPath -Arguments @(
     "--include-qt-plugins=platforms,styles,imageformats,iconengines",
     "--noinclude-qt-translations",
     "--noinclude-dlls=*/imageformats/qpdf.dll",
+    "--noinclude-dlls=qt6pdf.dll",
     "--noinclude-dlls=*.cpp.o",
     "--noinclude-dlls=*.qsb",
     "--assume-yes-for-downloads",
