@@ -152,8 +152,10 @@ def test_auto_output_is_sibling_and_does_not_create_directory(qapp, tmp_path):
     window.close()
 
 
-def test_drive_root_has_no_auto_output_suggestion():
-    assert suggest_sibling_output("C:\\") is None
+def test_platform_native_root_has_no_auto_output_suggestion():
+    native_root = Path(Path.cwd().anchor or os.path.sep)
+    assert native_root == Path(native_root.anchor)
+    assert suggest_sibling_output(str(native_root)) is None
 
 
 def test_manual_output_is_not_silently_overwritten(qapp, tmp_path):
@@ -394,6 +396,9 @@ def test_confirmation_dialog_requires_partial_ack_only_for_partial_plan(qapp, tm
         partial=True,
     )
     assert not partial_dialog.partial_check.isHidden()
+    assert partial_dialog.partial_check.text() == (
+        f"我知道本次只处理这 {partial.selected_count} 个 PSD"
+    )
     assert not partial_dialog.start_button.isEnabled()
     partial_dialog.partial_check.setChecked(True)
     assert partial_dialog.start_button.isEnabled()
@@ -421,7 +426,7 @@ def test_modal_plan_replacement_is_rejected_without_execute(qapp, tmp_path):
     window._confirm_and_execute()
     assert recorder.jobs == []
     assert not controller.current_plan_confirmed
-    assert "替换" in window.preview_banner.label.text()
+    assert "确认状态已经变化" in window.preview_banner.label.text()
     window.close()
 
 
@@ -578,7 +583,8 @@ def test_failure_result_auto_expands_safe_summary(qapp, tmp_path):
     window.show_execution_result(result)
     assert window.result_details.expanded
     assert "需要查看" in window.result_title.text()
-    assert window.result_table.item(0, 2).text() == "PHOTOSHOP_SAVE_FAILED"
+    assert window.result_table.item(0, 2).text() == "保存输出副本失败"
+    assert "PHOTOSHOP_SAVE_FAILED" not in window.current_visible_text()
     window.close()
 
 
@@ -597,8 +603,79 @@ def test_execute_fatal_failure_shows_recheck_and_old_plan_retry_is_unavailable(q
     assert window.current_page is PremiumPage.FATAL
     assert controller.state is GuiState.SETUP
     assert controller.plan is None
-    assert "重新检查" in window.current_visible_text()
+    visible = window.current_visible_text()
+    assert "本次任务没有继续执行" in visible
+    assert "请重新检查 PSD 后再试" in visible
+    assert "UNEXPECTED" not in visible
+    assert "safe failure" not in visible
     assert all(button.text() != "确认并开始处理" for button in window.current_primary_buttons())
+    window.close()
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected_page", "expected_text"),
+    (
+        ("inspect", PremiumPage.SETUP, "PSD 检查没有完成"),
+        ("plan", PremiumPage.TEXT_SELECTION, "修改预览没有生成"),
+    ),
+)
+def test_worker_failure_details_are_not_exposed_in_public_ui(
+    qapp, operation, expected_page, expected_text
+):
+    window = PremiumSimpleWindow(auto_environment_check=False)
+    window._active_operation = operation
+    window._on_failure("COM_PRIVATE_CODE", "private worker detail")
+    visible = window.current_visible_text()
+    assert window.current_page is expected_page
+    assert expected_text in visible
+    assert "COM_PRIVATE_CODE" not in visible
+    assert "private worker detail" not in visible
+    window.close()
+
+
+def test_stale_result_accounting_uses_typed_completed_and_remaining_counts(qapp, tmp_path):
+    controller = WorkflowController(job_factory=JobRecorder())
+    window = PremiumSimpleWindow(controller=controller, auto_environment_check=False)
+    plan = _plan(_options(tmp_path / "source", tmp_path / "output"))
+    controller.plan = plan
+    result = _execution(
+        plan,
+        stale=True,
+        candidate_count=2,
+        selected_count=1,
+        processed_count=0,
+        remaining_count=1,
+    )
+    window.show_execution_result(result)
+    accounting = window.result_accounting.text()
+    assert "本次计划纳入 1 个" in accounting
+    assert "实际已完成 0 个" in accounting
+    assert "计划内还有 1 个没有继续" in accounting
+    assert "另有 1 个未纳入" in accounting
+    assert "实际处理 1 个" not in accounting
+    window.close()
+
+
+def test_cancelled_result_does_not_describe_selected_count_as_processed(qapp, tmp_path):
+    controller = WorkflowController(job_factory=JobRecorder())
+    window = PremiumSimpleWindow(controller=controller, auto_environment_check=False)
+    plan = _plan(_options(tmp_path / "source", tmp_path / "output"))
+    controller.plan = plan
+    result = _execution(
+        plan,
+        cancelled=True,
+        candidate_count=4,
+        selected_count=3,
+        processed_count=1,
+        remaining_count=2,
+    )
+    window.show_execution_result(result)
+    accounting = window.result_accounting.text()
+    assert "本次计划纳入 3 个" in accounting
+    assert "实际已完成 1 个" in accounting
+    assert "计划内还有 2 个没有继续" in accounting
+    assert "另有 1 个未纳入" in accounting
+    assert "实际处理 3 个" not in accounting
     window.close()
 
 

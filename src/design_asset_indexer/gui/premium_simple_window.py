@@ -454,7 +454,9 @@ class ConfirmationDialog(QDialog):
                 word_wrap=True,
             )
         )
-        self.partial_check = QCheckBox("我知道本次只处理已纳入的 PSD")
+        self.partial_check = QCheckBox(
+            f"我知道本次只处理这 {plan.selected_count} 个 PSD"
+        )
         self.partial_check.setVisible(partial)
         layout.addWidget(self.partial_check)
         actions = QHBoxLayout()
@@ -1315,13 +1317,16 @@ class PremiumSimpleWindow(QMainWindow):
             )
             self._active_operation = "execute"
             self.controller.start_execute()
-        except RuntimeError as error:
+        except RuntimeError:
             if self.controller.state is GuiState.USER_CONFIRMED:
                 self.controller.revoke_confirmation()
             if self.controller.state is GuiState.SETUP and self.controller.plan is None:
                 self._show_fatal("正式处理未能安全开始，请重新检查 PSD。")
             else:
-                self.preview_banner.set_message(str(error), "error")
+                self.preview_banner.set_message(
+                    "确认状态已经变化，请重新核对修改预览。",
+                    "error",
+                )
                 self.set_page(PremiumPage.PREVIEW)
             self._refresh_actions()
 
@@ -1428,10 +1433,19 @@ class PremiumSimpleWindow(QMainWindow):
         self.result_metrics["skipped"].setText(str(skipped))
         self.result_metrics["failed"].setText(str(len(failures)))
         self.result_large_number.setText(str(success))
-        self.result_accounting.setText(
-            f"共发现 {result.candidate_count} 个 PSD，本次进入处理 {result.selected_count} 个；"
-            f"其余 {result.unplanned_count} 个未进入本次处理。"
-        )
+        if result.stale or result.cancelled:
+            self.result_accounting.setText(
+                f"共发现 {result.candidate_count} 个 PSD，本次计划纳入 "
+                f"{result.selected_count} 个；实际已完成 {result.processed_count} 个，"
+                f"计划内还有 {result.remaining_count} 个没有继续；另有 "
+                f"{result.unplanned_count} 个未纳入本次处理。"
+            )
+        else:
+            self.result_accounting.setText(
+                f"共发现 {result.candidate_count} 个 PSD，本次计划纳入 "
+                f"{result.selected_count} 个；其余 {result.unplanned_count} 个"
+                "未纳入本次处理。"
+            )
         self._populate_result_table(result)
         self.result_details.set_expanded(bool(failures))
         if result.stale:
@@ -1492,7 +1506,7 @@ class PremiumSimpleWindow(QMainWindow):
         for row, item in enumerate(ordered_items):
             if item.status.startswith("FAILED"):
                 label = "失败"
-                reason = item.error_code or "处理失败"
+                reason = self._safe_failure_reason(item.error_code)
             else:
                 label = labels.get(item.status, "安全跳过")
                 reason = {
@@ -1505,6 +1519,21 @@ class PremiumSimpleWindow(QMainWindow):
             for column, value in enumerate(values):
                 self.result_table.setItem(row, column, QTableWidgetItem(str(value)))
         self.result_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+
+    @staticmethod
+    def _safe_failure_reason(error_code: str | None) -> str:
+        """Translate internal execution categories into restrained public wording."""
+
+        code = (error_code or "").upper()
+        if "LAYER_NAME" in code:
+            return "图层名称未能安全保留"
+        if "MATCH_CHANGED" in code:
+            return "保存前文字匹配状态发生了变化"
+        if "SAVE" in code:
+            return "保存输出副本失败"
+        if "PHOTOSHOP" in code or "COM" in code:
+            return "Photoshop 处理未完成"
+        return "处理未完成"
 
     def _refresh_formal_report_action(self) -> None:
         reference = self.controller.formal_report_ref
@@ -1574,15 +1603,20 @@ class PremiumSimpleWindow(QMainWindow):
         self.set_page(PremiumPage.SETUP)
         self.setup_banner.set_message("请重新检查 PSD。", "warning")
 
-    def _on_failure(self, code: str, message: str) -> None:
-        safe = f"{code}: {message}"
+    def _on_failure(self, _code: str, _message: str) -> None:
         if self._active_operation == "execute":
-            self._show_fatal("本次任务没有继续执行。" + safe)
+            self._show_fatal("请重新检查 PSD 后再试。")
         elif self._active_operation == "plan":
-            self.rule_banner.set_message(safe, "error")
+            self.rule_banner.set_message(
+                "修改预览没有生成，请重新检查设置后再试。",
+                "error",
+            )
             self.set_page(PremiumPage.TEXT_SELECTION)
         elif self._active_operation == "inspect":
-            self.setup_banner.set_message(safe, "error")
+            self.setup_banner.set_message(
+                "PSD 检查没有完成，请确认 Photoshop 可用后再试。",
+                "error",
+            )
             self.set_page(PremiumPage.SETUP)
 
     def _on_job_finished(self) -> None:
