@@ -38,7 +38,7 @@ def test_portable_spec_is_auditable_standalone_configuration():
     extra_args = config["nuitka"]["extra_args"]
     assert "--windows-console-mode=disable" in extra_args
     assert "--output-filename=DesignAssetIndexer.exe" in extra_args
-    assert "--product-name=Design Asset Indexer" in extra_args
+    assert '--product-name="Design Asset Indexer"' in extra_args
     assert "--product-version=0.3.0" in extra_args
     assert "--file-version=0.3.0.0" in extra_args
 
@@ -68,6 +68,7 @@ def test_build_script_has_bounded_release_contract():
         "licenses\\GPL-3.0.txt",
         "Unexplained Qt modules were bundled",
         "RC builds require a clean source tree",
+        "--dry-run",
     )
     assert all(value in source for value in required)
     for forbidden in (
@@ -82,6 +83,7 @@ def test_build_script_has_bounded_release_contract():
     assert "upx = $false" in source.lower()
     assert "pywin32_auto_detected = $true" in source.lower()
     assert "pywin32_explicit_include_required = $false" in source.lower()
+    assert "--windows-icon-from-ico" not in source
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="PowerShell syntax is Windows-only")

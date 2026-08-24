@@ -17,6 +17,13 @@ Windows portable release candidate.
 application. The build rejects unexplained QtWebEngine, QtQuick, QML,
 QtMultimedia, and Qt3D payloads.
 
+PySide6 6.11.2 currently injects its own default icon whenever
+`pyside6-deploy` runs a build, even when the spec leaves `icon` empty. Because
+this repository has no approved original icon, the script records the official
+`pyside6-deploy --dry-run` command and invokes its pinned Nuitka 4.1.1 backend
+with the same standalone settings while intentionally omitting only that
+default-icon option. No alternative packager or image asset is used.
+
 ## Isolated build environment
 
 Use Python 3.11 x64 and do not install packaging tools globally:

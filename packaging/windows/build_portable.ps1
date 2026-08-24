@@ -169,7 +169,7 @@ try {
     $savedErrorActionPreference = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
     try {
-        & $DeployTool -c ".\pysidedeploy.runtime.spec" --force 2>&1 |
+        & $DeployTool -c ".\pysidedeploy.runtime.spec" --dry-run --force 2>&1 |
             Tee-Object -FilePath $DeployLog
         $deployExitCode = $LASTEXITCODE
     }
@@ -177,7 +177,7 @@ try {
         $ErrorActionPreference = $savedErrorActionPreference
     }
     if ($deployExitCode -ne 0) {
-        throw "pyside6-deploy failed with exit code $deployExitCode."
+        throw "pyside6-deploy dry-run failed with exit code $deployExitCode."
     }
 }
 finally {
@@ -187,13 +187,40 @@ finally {
     }
 }
 
-$DeployDirectory = Join-Path $BuildRoot "deploy\DesignAssetIndexer.dist"
+$deployReadback = Get-Content -Raw -LiteralPath $DeployLog
+if ($deployReadback -notmatch "Nuitka" -or $deployReadback -notmatch "--standalone") {
+    throw "pyside6-deploy did not resolve the expected Nuitka standalone command."
+}
+
+$NuitkaOutputRoot = Join-Path $BuildRoot "nuitka"
+New-Item -ItemType Directory -Path $NuitkaOutputRoot -Force | Out-Null
+$NuitkaReport = Join-Path $BuildRoot "nuitka-compilation-report.xml"
+Invoke-Checked -FilePath $PythonPath -Arguments @(
+    "-m", "nuitka",
+    (Join-Path $PackagingRoot "launcher.py"),
+    "--follow-imports",
+    "--enable-plugin=pyside6",
+    "--standalone",
+    "--output-dir=$NuitkaOutputRoot",
+    "--output-filename=DesignAssetIndexer.exe",
+    "--windows-console-mode=disable",
+    "--product-name=Design Asset Indexer",
+    "--product-version=0.3.0",
+    "--file-version=0.3.0.0",
+    "--include-qt-plugins=platforms,styles,imageformats,iconengines",
+    "--noinclude-qt-translations",
+    "--noinclude-dlls=*.cpp.o",
+    "--noinclude-dlls=*.qsb",
+    "--assume-yes-for-downloads",
+    "--report=$NuitkaReport"
+)
+
+$DeployDirectory = Join-Path $NuitkaOutputRoot "launcher.dist"
 $BuiltExe = Join-Path $DeployDirectory "DesignAssetIndexer.exe"
 if (-not (Test-Path -LiteralPath $BuiltExe -PathType Leaf)) {
     throw "Expected standalone executable was not produced: DesignAssetIndexer.exe"
 }
 
-$NuitkaReport = Join-Path $BuildRoot "nuitka-compilation-report.xml"
 if (-not (Test-Path -LiteralPath $NuitkaReport -PathType Leaf)) {
     throw "Nuitka compilation report was not produced."
 }
