@@ -1,0 +1,50 @@
+name: Bug report
+description: 报告可复现的错误、兼容性或数据安全问题
+title: "[Bug] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        请不要上传私人 PSD、真实署名、绝对私人路径、账号凭据或其他敏感素材。
+  - type: input
+    id: version
+    attributes:
+      label: 项目版本
+      placeholder: v0.3.0 或 commit SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: 环境
+      description: Windows、Photoshop、Python（如果使用 CLI）版本
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 请使用脱敏路径和合成示例说明
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 预期结果
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际结果
+      description: 可包含脱敏后的错误码、日志或截图
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我已确认没有公开私人 PSD、真实署名、凭据或敏感绝对路径
+          required: true
