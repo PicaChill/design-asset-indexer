@@ -14,7 +14,7 @@
 > - ⚠️ **需要**：Windows + 本机 Adobe Photoshop
 > - ❌ **暂不支持**：栅格化署名、Smart Object 内文字、GIF 成品图署名
 
-当前正式版本 v0.3.0 提供面向普通 Windows 用户的 Premium Simple GUI。Windows
+当前正式版本 [`v0.3.0`](https://github.com/PicaChill/design-asset-indexer/releases/tag/v0.3.0) 提供面向普通 Windows 用户的 Premium Simple GUI。Windows
 x64 portable ZIP 由本项目官方 GitHub Release 提供；portable 用户不需要另外安装 Python，
 PSD 写入仍需要本机已安装 Adobe Photoshop。
 
@@ -143,6 +143,14 @@ py -3.11 -m venv ".venv"
 使用 `python -m design_asset_indexer <命令> --help` 查看全量参数。CSV 适合人工查看，JSON / JSONL 适合后续程序处理。
 
 PSD / PSB parser 是最小实现，不渲染完整画面；内嵌预览只支持合法 JPEG thumbnail resource。ZIP 只读索引会拒绝 ZIP64 central-directory metadata、multi-disk ZIP 和异常大的目录数据。Photoshop 写入通过 Windows COM / pywin32 完成，但只访问命令明确选中的 PSD。
+
+## 🤝 维护与贡献
+
+- 贡献代码或报告问题前，请阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md)。
+- Issue triage、PR review 与发布流程见 [`docs/MAINTAINING.md`](docs/MAINTAINING.md)。
+- 当前维护方向和明确的非目标见 [`ROADMAP.md`](ROADMAP.md)。
+- 敏感问题请按 [`SECURITY.md`](SECURITY.md) 的渠道处理，不要公开私人素材。
+- 当前稳定版本及已验收资产见 [`v0.3.0 Release`](https://github.com/PicaChill/design-asset-indexer/releases/tag/v0.3.0)。
 
 ## English
 
