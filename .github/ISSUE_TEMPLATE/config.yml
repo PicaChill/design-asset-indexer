@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security policy
+    url: https://github.com/PicaChill/design-asset-indexer/security/policy
+    about: 安全问题请先阅读 SECURITY.md，避免在公开 issue 中披露敏感细节。
